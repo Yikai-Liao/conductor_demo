@@ -72,6 +72,16 @@ $ docker system info | sed -n '/Proxy/,+8p'
 本机的 docker 已经配置了代理环境变量，但是构建 dockerfile 时构建过程中的代理配置参考reference/annex_demo/docker/annex/Dockerfile
 你应该尽可能配置好中国镜像，少走代理
 
+## 用户最新约束（覆盖之前的 scope 收缩结论）
+
+下面 5 条是最新明确约束，优先级高于后面工程审查里那版“先缩 scope”的结论：
+
+1. `Nomad / Consul / Vault` 恢复为本轮必须项，不再允许从实现范围里删掉。
+2. `docker compose` 只负责本地模拟基础设施与网络分区，不应该把所有业务组件直接写死成“宿主机可见 + compose service 名直连”的最终交付形态。
+3. 服务发现必须通过 `Consul`，配置分发必须通过 `Nomad template / Consul KV`，密钥分发必须通过 `Vault`，不能把这些职责退化成写死环境变量。
+4. 默认不向宿主机暴露内部服务端口；只有操作者真正需要直接访问的入口才允许暴露，其余链路都应走容器内部网络、gateway、Nomad/Consul DNS 或 `docker compose exec` / tunnel。
+5. 需要暴露到宿主机的端口必须最小化并写明理由；`PostgreSQL`、worker、review service、OTel Collector、VictoriaMetrics、VictoriaLogs、Vector、vmagent 默认都不应该直接暴露。
+
 ## 设计审查补充（已合并进计划）
 
 这次任务的重点不是单纯把容器跑起来，而是把整条演示链路做成“操作者第一次跑也不会迷路”的状态。当前计划在系统搭建上有方向，但在演示体验上缺了太多关键决策，所以这里直接补齐。
@@ -123,7 +133,8 @@ $ docker system info | sed -n '/Proxy/,+8p'
 
 ```text
 启动与验收
-  -> docker compose up / verify
+  -> docker compose up (infra only)
+  -> nomad submit / verify
   -> 打开 Conductor UI，确认服务可用
   -> 启动单个 workflow，打开 execution detail
   -> 观察 review 节点进入 waiting / in_progress
@@ -324,13 +335,17 @@ Node review service 至少要提供以下能力：
 
 这份计划现在不缺“想做什么”，缺的是“怎么用最少的系统把它稳定做出来”。工程审查的目标不是继续加组件，而是把可落地路径钉死，避免实现阶段边做边改。
 
-### 1. Step 0 结论：先缩 scope，再把闭环做实
+### 1. Step 0 结论：按真实约束收敛，而不是继续删基础设施
 
 #### 1.1 现在就应该锁死的 scope
 
 保留：
 
-- `docker compose` 本地编排
+- `docker compose` 本地基础设施编排
+- `Nomad server/client`
+- `Consul` 服务发现与配置分发
+- `Vault` 密钥分发
+- 单一 `Gateway` 入口层
 - `Conductor + PostgreSQL`
 - `Python func1 worker`
 - `Node.js review service + HUMAN task completion`
@@ -340,12 +355,12 @@ Node review service 至少要提供以下能力：
 
 移出本轮：
 
-- `Nomad / Consul / Vault`
+- `Ansible` 跨主机自动化部署
 - `Nginx / Envoy / API Gateway` 三选一以外的网关实验
 - 通用“丢包 / 抖动 / chaos”注入层
 - 容器镜像发布、CI/CD、远端部署
 
-理由很简单：真正证明价值的是 `func1 -> HUMAN review -> func2`、跨语言链路、批量运行与可观测性，不是额外多挂几个基础设施名词。这个 repo 现在还没有实现代码，继续把演示目标和基础设施目标绑在一起，只会把第一版拖死。
+理由要改写：这次不能再把 `Nomad / Consul / Vault` 视为“可删的基础设施名词”，因为用户已经明确要求这三者分别承担 `调度 / 服务发现 / 配置分发 / 密钥分发` 的职责。真正需要删掉的不是它们，而是“多种 gateway 候选”“多节点真实机自动化”“附加 chaos 层”这些会稀释 demo 重点的展开项。
 
 #### 1.2 What already exists
 
@@ -354,11 +369,11 @@ Node review service 至少要提供以下能力：
 - `reference/observability-platform-demo/verify.sh`
   - 已经给了“等待服务就绪 -> 造流量 -> 校验 metrics / logs / dashboard”的验收节奏。
 - `reference/nomad-demo/README.md`
-  - 已经给了“UI 如果不稳，要给 API / tunnel / CLI fallback”的写法。
+  - 已经给了 `Consul/Nomad` 的运行角色划分、job 渲染方式、以及“UI 如果不稳，要给 API / tunnel / CLI fallback”的写法。
 - `.agents/skills/conductor/SKILL.md`
   - 已经给了 workflow / task definition 注册和 worker 检查流程。
 
-这意味着本轮不应该再发明新的启动协议或观测说明文档，应该复用已有结构，只把任务特有的 workflow / review / bulk 逻辑补上。
+这意味着本轮不应该把 `reference/nomad-demo` 只当成背景材料，而应该直接复用它对 `job spec / 服务注册 / CLI fallback` 的处理方式，把本仓库的业务组件迁移到 `Nomad job` 语义上。
 
 #### 1.3 Search check 后的工程结论
 
@@ -386,33 +401,52 @@ Node review service 至少要提供以下能力：
 
 ```text
 Demo Operator
-  -> scripts/bootstrap.sh
-  -> scripts/register-defs.sh
-  -> scripts/run-one.sh / scripts/run-bulk.sh
-  -> scripts/verify.sh
-  -> scripts/search-output.sh
+  -> docker compose up -d                    # 只起基础设施与网络
+  -> docker compose exec toolbox scripts/*   # 从内部工具容器发命令
+  -> Nomad UI / Consul UI / Vault UI / Grafana / Gateway
 
-Conductor UI / API
+Nomad / Consul / Vault
+  <- Nomad job submit / alloc status
+  <- Consul service discovery / KV config
+  <- Vault secret issue / template injection
+
+Gateway
+  <- 唯一宿主机入口
+  -> Conductor API / UI
+  -> 如有必要，转发 review API
+
+Conductor UI / API (Nomad job)
   <- workflow start / state / search
   <- HUMAN task waiting
+  <- PostgreSQL / Consul / Vault via internal network
 
-Python worker (func1)
+Python worker (Nomad job)
   <- poll SIMPLE task: func1_python
+  <- Conductor endpoint from Consul
+  <- auth / db / gateway credentials from Vault template
   -> output: candidate_x, attempt, comment_in
 
-Node review service
+Node review service (Nomad job)
+  <- Conductor endpoint from Consul
+  <- token / auth secret from Vault template
   -> list pending HUMAN tasks
   -> approve / reject / auto-review via Conductor Task API
   -> output: decision, comment, delay_ms, next_x, review_trace_id
 
-TS worker (func2)
+TS worker (Nomad job)
   <- poll SIMPLE task: func2_ts
+  <- Conductor endpoint from Consul
   -> output: y
 
 Python / Node / TS
   -> JSON logs with top-level trace fields -> Vector -> VictoriaLogs
   -> OTel metrics -> OTel Collector -> vmagent -> VictoriaMetrics -> Grafana
 ```
+
+这里新增两个硬约束：
+
+- `docker compose` 不是最终的业务调度层；它只负责拉起 `Nomad / Consul / Vault / PostgreSQL / observability / gateway` 这些基础设施。
+- `worker / review service / gateway / conductor` 的运行关系不能再靠宿主机端口和写死 compose service name 维系，必须落到 `Nomad job + Consul service + Vault template` 这套链路上。
 
 #### 2.2 Workflow 定义必须长这样
 
@@ -541,11 +575,23 @@ Phase C: fallback
 .
 ├── docker-compose.yml
 ├── .env.example
+├── generated/
+├── runtime/
 ├── config/
 │   ├── conductor/
+│   ├── consul/
 │   ├── grafana/
+│   ├── nomad/
 │   ├── otel-collector/
+│   ├── vault/
 │   └── vector/
+├── gateway/
+├── toolbox/
+├── jobs/
+│   ├── conductor.nomad.hcl
+│   ├── func1-python.nomad.hcl
+│   ├── func2-ts.nomad.hcl
+│   └── review-service.nomad.hcl
 ├── workflows/
 │   └── human-review-demo.json
 ├── taskdefs/
@@ -558,6 +604,7 @@ Phase C: fallback
 │   └── review-service/
 ├── scripts/
 │   ├── bootstrap.sh
+│   ├── nomad-submit.sh
 │   ├── register-defs.sh
 │   ├── run-one.sh
 │   ├── run-bulk.sh
@@ -567,7 +614,7 @@ Phase C: fallback
     └── e2e/
 ```
 
-这已经是能完成目标的最小骨架了。不要再拆更多顶层目录，不要搞共享 SDK 包，不要为了“以后可能扩展”先做 monorepo 工具层。
+这次的“最小骨架”必须把 `jobs/`、`config/consul`、`config/vault`、`config/nomad` 也带上，否则服务发现、配置分发、密钥分发只能重新退化成写死 compose env。
 
 #### 3.2 共享契约必须单点定义
 
@@ -582,9 +629,17 @@ Phase C: fallback
 
 #### 3.3 配置规则
 
-- 所有入口地址、Conductor 鉴权、Grafana 账号、代理变量都放 `.env.example`。
-- `scripts/*` 只读环境变量，不在脚本里写死 host / port / token。
-- 需要公网 / 内网“味道”时，本轮最多加一个反向代理层；没必要同时摆 `Nginx / Envoy / API Gateway` 三个候选。
+- `.env.example` 只放操作者入口、代理、demo 级开关，不承担服务发现和密钥分发职责。
+- `scripts/*` 不直接把内部服务地址写死成宿主机端口；优先通过 `docker compose exec toolbox`、`nomad alloc exec`、`Consul DNS` 或 gateway 访问。
+- `Conductor`、worker、review service 的内部依赖地址走 `Consul service name` 或 `Nomad template` 渲染，不再在 job 里硬编码 `http://conductor-server:8080` 这类值。
+- 所有 token、数据库口令、gateway 凭据走 `Vault`，至少在 demo 中以 dev server + policy + template file 的形式体现。
+- 需要公网 / 内网“味道”时，本轮只保留一个 gateway，不做多种网关同时并列。
+
+#### 3.4 端口暴露规则
+
+- 默认不向宿主机暴露 `PostgreSQL`、`worker`、`review service`、`OTel Collector`、`Vector`、`VictoriaMetrics`、`VictoriaLogs`、`vmagent` 的端口。
+- 允许暴露的入口只包括：`Gateway public listener`、`Nomad UI`、`Consul UI/API`、`Vault UI/API`、`Grafana`。
+- 如果某个内部组件临时需要暴露到宿主机，必须在计划里写清楚“谁需要访问它、为什么不能走内部网络、演示结束后是否需要撤回”。
 
 ### 4. 测试审查
 
@@ -604,6 +659,11 @@ Phase C: fallback
 ```text
 CODE PATH COVERAGE
 ===========================
+[+] nomad / consul / vault integration
+    ├── [GAP] Nomad job render 与 submit
+    ├── [GAP] Consul service register / resolve
+    └── [GAP] Vault policy / secret template 注入
+
 [+] scripts/register-defs.sh
     ├── [GAP] 注册 task definitions
     ├── [GAP] 注册 workflow definition
@@ -665,13 +725,14 @@ USER FLOW COVERAGE
     ├── [GAP] review service 无待处理任务
     ├── [GAP] worker 未注册
     ├── [GAP] Grafana datasource 未就绪
-    └── [GAP] search proof 失败时给出 fallback 提示
+    ├── [GAP] search proof 失败时给出 fallback 提示
+    └── [GAP] Consul / Vault / Nomad 任一子系统不可用时给出明确故障面
 
 ─────────────────────────────────
-COVERAGE: 0/23 paths tested (0%)
-  Code paths: 0/16
-  User flows: 0/7
-GAPS: 23 条路径全部需要补测试
+COVERAGE: 0/27 paths tested (0%)
+  Code paths: 0/19
+  User flows: 0/8
+GAPS: 27 条路径全部需要补测试
 ─────────────────────────────────
 ```
 
@@ -697,6 +758,8 @@ GAPS: 23 条路径全部需要补测试
   - 验证 Grafana datasource、metrics、logs、trace fields。
 - `tests/e2e/failure-surface.sh`
   - 验证 worker 缺席、search proof 失败、review 无待处理任务时的报错文本。
+- `tests/e2e/control-plane.sh`
+  - 验证 Nomad job submit、Consul service catalog、Vault template 渲染与最小宿主机暴露面。
 
 ### 5. Failure modes
 
@@ -706,6 +769,9 @@ GAPS: 23 条路径全部需要补测试
 | pending review 获取 | API 无法列出 HUMAN task，操作者拿不到 taskId | 计划要求覆盖 | 需补 `GET /reviews/pending` | 否则近似静默失败 | 现已补为必做项 |
 | HUMAN completion | taskId 已终态或过期，approve/reject 失败 | 计划要求覆盖 | review service 返回 4xx/5xx + 原因 | 明确可见 | 必做 |
 | reject 回路 | 没有 `maxAttempts`，workflow 无限循环 | 计划要求覆盖 | workflow definition 里硬性限制 | 不可接受 | 必做 |
+| Consul 服务发现 | 服务没注册或 DNS 解析不到，worker/review 找不到 conductor | 计划要求覆盖 | `verify` 必须检查 service catalog 与 DNS 解析 | 否则近似静默失败 | 必做 |
+| Vault 密钥分发 | template 没渲染或 secret lease 失效，job 启动后拿不到凭据 | 计划要求覆盖 | `verify` 必须检查 secret file / env 注入结果 | 明确可见 | 必做 |
+| 宿主机端口暴露 | 内部服务被直接暴露，demo 与真实网络边界不一致 | 计划要求覆盖 | compose / nomad 配置里默认禁掉 | 前期不明显，后期演示口径失真 | 必做 |
 | bulk 搜索 | `output.y` 无法被 UI / API 稳定检索 | 计划要求覆盖 | `prove-search.sh + search-output.sh` fallback | 可见，但需提前化解 | 必做 |
 | trace 关联 | HUMAN 边界丢失 trace context，logs 断链 | 计划要求覆盖 | 明确 `traceparent` 传递与顶层日志字段 | 否则是静默失败 | 必做 |
 | metrics 设计 | 把 `workflowId` 当 label，Victoria / Grafana 基数爆炸 | 计划要求覆盖 | 计划中禁止高基数 label | 前期不明显，后期慢 | 必做 |
@@ -767,7 +833,7 @@ Conductor 官方文档已经给了 `concurrentExecLimit`、`responseTimeoutSecon
 
 在原计划基础上，再明确下面这些不做：
 
-- 不做 Nomad / Consul / Vault，本轮只保留 docker compose 语义上的最小网络隔离。
+- 不做 `Ansible + 多物理机` 的真实跨主机部署；本轮只在 `docker compose` 里模拟 `Nomad / Consul / Vault` 角色，但这三者本身是 in-scope。
 - 不做额外的 API Gateway 选型对比，本轮至多一个反向代理层。
 - 不做 Elasticsearch / OpenSearch 兜底集成，除非后续明确放弃“纯 PostgreSQL”目标。
 - 不做容器镜像发布、CI workflow、GitHub Releases。
@@ -778,27 +844,27 @@ Conductor 官方文档已经给了 `concurrentExecLimit`、`responseTimeoutSecon
 
 | Step | Modules touched | Depends on |
 |------|----------------|------------|
-| 基础编排与配置 | `config/`, `docker-compose.yml`, `scripts/` | — |
-| Workflow 与 review 契约 | `workflows/`, `taskdefs/`, `services/review-service/` | 基础编排与配置 |
-| Worker 实现 | `workers/func1-python/`, `workers/func2-ts/` | Workflow 与 review 契约 |
-| 验收与 bulk/fallback | `tests/e2e/`, `scripts/` | 基础编排与配置, Workflow 与 review 契约, Worker 实现 |
+| 基础设施编排 | `config/`, `docker-compose.yml`, `jobs/`, `scripts/` | — |
+| Workflow 与 review 契约 | `workflows/`, `taskdefs/`, `services/review-service/` | 基础设施编排 |
+| Worker 实现 | `workers/func1-python/`, `workers/func2-ts/` | Workflow 与 review 契约, 基础设施编排 |
+| 验收与 bulk/fallback | `tests/e2e/`, `scripts/` | 基础设施编排, Workflow 与 review 契约, Worker 实现 |
 
 并行 lane：
 
-- Lane A: 基础编排与配置 -> 验收与 bulk/fallback
-- Lane B: Workflow 与 review 契约 -> Worker 实现
+- Lane A: `docker compose + Nomad/Consul/Vault/gateway + observability`
+- Lane B: `workflow/taskdefs/review API/worker`
 
 执行顺序：
 
 - 先开 `Lane A + Lane B` 两个 worktree 并行。
-- `Lane A` 先把 compose / Grafana / verify 框架搭起来。
-- `Lane B` 在契约锁定后实现 workflow JSON、review API、两个 worker。
+- `Lane A` 先把 compose 基础设施、Nomad job 模板、Consul/Vault、gateway、Grafana/verify 框架搭起来。
+- `Lane B` 在契约锁定后实现 workflow JSON、review API、两个 worker，并把内部地址改成 Consul/Vault 驱动。
 - 两条线合并后，再统一跑 `tests/e2e/*`。
 
 冲突提示：
 
 - `scripts/` 会被 `Lane A` 和最终验收阶段同时改，属于轻度冲突区。
-- `config/` 只让 `Lane A` 负责，别让 worker 线顺手改 collector / vector 配置。
+- `config/`、`jobs/`、gateway 只让 `Lane A` 负责，别让 worker 线顺手改基础设施模板。
 
 ## GSTACK REVIEW REPORT
 
@@ -806,8 +872,8 @@ Conductor 官方文档已经给了 `concurrentExecLimit`、`responseTimeoutSecon
 |--------|---------|-----|------|--------|----------|
 | CEO Review | `/plan-ceo-review` | Scope & strategy | 0 | — | — |
 | Codex Review | `/codex review` | Independent 2nd opinion | 0 | — | — |
-| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | clean | 21 issues, 0 critical gaps |
+| Eng Review | `/plan-eng-review` | Architecture & tests (required) | 1 | reopened | 21 issues + 1 user override bundle |
 | Design Review | `/plan-design-review` | UI/UX gaps | 1 | issues_open | score: 3/10 -> 8/10, 5 decisions |
 
 **UNRESOLVED:** 0 个待用户回答的问题。
-**VERDICT:** ENG CLEARED，可以开始按“最小闭环 -> bulk -> fallback -> observability”顺序实现；最先要验证的是 PostgreSQL indexing 下 `output.y` 的搜索 proof。
+**VERDICT:** 因用户补充约束已重新打开：必须先把 `Nomad / Consul / Vault + 最小宿主机暴露面` 写回执行方案，再继续实现；否则实现会持续偏离目标。

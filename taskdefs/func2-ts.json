@@ -1,0 +1,31 @@
+{
+  "name": "func2_ts",
+  "description": "TypeScript worker for func2: multiply x by 2 and expose final y",
+  "ownerEmail": "demo@example.com",
+  "retryCount": 2,
+  "retryLogic": "FIXED",
+  "retryDelaySeconds": 5,
+  "timeoutSeconds": 60,
+  "responseTimeoutSeconds": 30,
+  "pollTimeoutSeconds": 60,
+  "timeoutPolicy": "TIME_OUT_WF",
+  "concurrentExecLimit": 32,
+  "inputKeys": [
+    "x",
+    "attempt",
+    "comment",
+    "correlation_id",
+    "traceparent"
+  ],
+  "outputKeys": [
+    "x",
+    "y",
+    "attempt",
+    "trace_id",
+    "span_id",
+    "trace_flags",
+    "traceparent",
+    "workflowId",
+    "taskId"
+  ]
+}

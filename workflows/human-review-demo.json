@@ -1,0 +1,134 @@
+{
+  "name": "human_review_demo",
+  "description": "Minimal Conductor demo for func1 -> HUMAN review -> func2 with repeat-until-approved flow",
+  "version": 1,
+  "schemaVersion": 2,
+  "ownerEmail": "demo@example.com",
+  "restartable": true,
+  "timeoutPolicy": "ALERT_ONLY",
+  "timeoutSeconds": 0,
+  "outputParameters": {
+    "decision": "${workflow.variables.last_decision}",
+    "comment": "${workflow.variables.last_comment}",
+    "final_x": "${workflow.variables.current_x}",
+    "attempts": "${review_loop.output.iteration}",
+    "traceparent": "${workflow.variables.traceparent}",
+    "trace_id": "${func2_ts.output.trace_id}",
+    "y": "${func2_ts.output.y}"
+  },
+  "tasks": [
+    {
+      "name": "init_state",
+      "taskReferenceName": "init_state",
+      "type": "SET_VARIABLE",
+      "inputParameters": {
+        "approval_threshold": "${workflow.input.approval_threshold}",
+        "auto_review": "${workflow.input.auto_review}",
+        "bulk_seed": "${workflow.input.bulk_seed}",
+        "correlation_id": "${workflow.input.correlation_id}",
+        "current_x": "${workflow.input.x}",
+        "last_comment": "",
+        "last_decision": "PENDING_REVIEW",
+        "max_attempts": 8,
+        "review_mode": "${workflow.input.review_mode}",
+        "traceparent": "${workflow.input.traceparent}"
+      }
+    },
+    {
+      "name": "review_loop",
+      "taskReferenceName": "review_loop",
+      "type": "DO_WHILE",
+      "keepLastN": 5,
+      "inputParameters": {
+        "max_attempts": "${workflow.variables.max_attempts}"
+      },
+      "loopCondition": "(function () { if ($.review_loop['iteration'] >= $.max_attempts) { return false; } return $.review_gate['decision'] !== 'APPROVED'; })();",
+      "loopOver": [
+        {
+          "name": "func1_python",
+          "taskReferenceName": "func1_python",
+          "type": "SIMPLE",
+          "inputParameters": {
+            "attempt": "${review_loop.output.iteration}",
+            "comments": "${workflow.variables.last_comment}",
+            "correlation_id": "${workflow.variables.correlation_id}",
+            "current_x": "${workflow.variables.current_x}",
+            "traceparent": "${workflow.variables.traceparent}"
+          }
+        },
+        {
+          "name": "review_gate",
+          "taskReferenceName": "review_gate",
+          "type": "HUMAN",
+          "inputParameters": {
+            "approval_threshold": "${workflow.variables.approval_threshold}",
+            "attempt": "${func1_python.output.attempt}",
+            "auto_review": "${workflow.variables.auto_review}",
+            "candidate_x": "${func1_python.output.candidate_x}",
+            "comment_in": "${func1_python.output.comment_in}",
+            "correlation_id": "${workflow.variables.correlation_id}",
+            "review_mode": "${workflow.variables.review_mode}",
+            "traceparent": "${func1_python.output.traceparent}"
+          }
+        },
+        {
+          "name": "update_state",
+          "taskReferenceName": "update_state",
+          "type": "SET_VARIABLE",
+          "inputParameters": {
+            "current_x": "${review_gate.output.next_x}",
+            "last_attempt": "${review_gate.output.attempt}",
+            "last_comment": "${review_gate.output.comment}",
+            "last_decision": "${review_gate.output.decision}",
+            "traceparent": "${review_gate.output.traceparent}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "route_after_review",
+      "taskReferenceName": "route_after_review",
+      "type": "SWITCH",
+      "evaluatorType": "value-param",
+      "expression": "lastDecision",
+      "inputParameters": {
+        "lastDecision": "${workflow.variables.last_decision}"
+      },
+      "decisionCases": {
+        "APPROVED": [
+          {
+            "name": "func2_ts",
+            "taskReferenceName": "func2_ts",
+            "type": "SIMPLE",
+            "inputParameters": {
+              "attempt": "${review_loop.output.iteration}",
+              "comment": "${workflow.variables.last_comment}",
+              "correlation_id": "${workflow.variables.correlation_id}",
+              "traceparent": "${workflow.variables.traceparent}",
+              "x": "${workflow.variables.current_x}"
+            }
+          }
+        ]
+      },
+      "defaultCase": [
+        {
+          "name": "terminate_without_approval",
+          "taskReferenceName": "terminate_without_approval",
+          "type": "TERMINATE",
+          "inputParameters": {
+            "terminationReason": "review loop exited without APPROVED decision",
+            "terminationStatus": "FAILED",
+            "workflowOutput": {
+              "attempts": "${review_loop.output.iteration}",
+              "comment": "${workflow.variables.last_comment}",
+              "decision": "${workflow.variables.last_decision}",
+              "final_x": "${workflow.variables.current_x}",
+              "traceparent": "${workflow.variables.traceparent}",
+              "y": null
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

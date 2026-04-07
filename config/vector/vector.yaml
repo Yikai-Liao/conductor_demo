@@ -1,0 +1,48 @@
+data_dir: /var/lib/vector
+
+sources:
+  docker_logs:
+    type: docker_logs
+    docker_host: unix:///var/run/docker.sock
+
+transforms:
+  select_demo_services:
+    type: filter
+    inputs:
+      - docker_logs
+    condition: |
+      replace(string!(.container_name), r'^/', "") == "conductor-server" ||
+      replace(string!(.container_name), r'^/', "") == "func1-python" ||
+      replace(string!(.container_name), r'^/', "") == "func2-ts" ||
+      replace(string!(.container_name), r'^/', "") == "review-service"
+
+  normalize_demo_logs:
+    type: remap
+    inputs:
+      - select_demo_services
+    source: |
+      .container_name = replace(string!(.container_name), r'^/', "")
+      .source_type = "docker"
+      parsed, err = parse_json(string!(.message))
+      if err == null {
+        . = merge(., parsed)
+      }
+      .service = .service ?? .container_name
+      .message = .message ?? string!(.message)
+      .stream = string!(.stream)
+      del(.label)
+      del(.container_created_at)
+      del(.container_id)
+      del(.image)
+
+sinks:
+  victoria_logs:
+    type: elasticsearch
+    inputs:
+      - normalize_demo_logs
+    endpoints:
+      - http://victoria-logs:9428/insert/elasticsearch
+    mode: bulk
+    api_version: v8
+    compression: gzip
+    healthcheck: false

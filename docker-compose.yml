@@ -1,0 +1,249 @@
+x-proxy-build-args: &proxy_build_args
+  HTTP_PROXY: ${HTTP_PROXY:-}
+  HTTPS_PROXY: ${HTTPS_PROXY:-}
+  ALL_PROXY: ${ALL_PROXY:-}
+  NO_PROXY: ${NO_PROXY:-}
+
+x-proxy-env: &proxy_env
+  HTTP_PROXY: ${HTTP_PROXY:-}
+  HTTPS_PROXY: ${HTTPS_PROXY:-}
+  ALL_PROXY: ${ALL_PROXY:-}
+  NO_PROXY: ${NO_PROXY:-}
+  http_proxy: ${HTTP_PROXY:-}
+  https_proxy: ${HTTPS_PROXY:-}
+  all_proxy: ${ALL_PROXY:-}
+  no_proxy: ${NO_PROXY:-}
+
+services:
+  conductor-postgres:
+    image: postgres:${POSTGRES_VERSION:-16-alpine}
+    container_name: conductor-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-conductor}
+      POSTGRES_USER: ${POSTGRES_USER:-conductor}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-conductor}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-conductor} -d ${POSTGRES_DB:-conductor}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    ports:
+      - "${POSTGRES_PORT:-15432}:5432"
+    volumes:
+      - conductor_postgres_data:/var/lib/postgresql/data
+    networks:
+      - demo
+    restart: unless-stopped
+
+  conductor-server:
+    image: conductoross/conductor:${CONDUCTOR_VERSION:-3.22.2}
+    container_name: conductor-server
+    environment:
+      <<: *proxy_env
+      CONFIG_PROP: /app/config/config-postgres.properties
+      JAVA_OPTS: -Xms512m -Xmx2048m
+    depends_on:
+      conductor-postgres:
+        condition: service_healthy
+    ports:
+      - "${CONDUCTOR_API_PORT:-18080}:8080"
+      - "${CONDUCTOR_UI_PORT:-18127}:5000"
+    volumes:
+      - ./config/conductor/config-postgres.properties:/app/config/config-postgres.properties:ro
+    networks:
+      - demo
+      - observability
+    restart: unless-stopped
+
+  func1-python:
+    build:
+      context: .
+      dockerfile: docker/func1-python/Dockerfile
+      args: *proxy_build_args
+    container_name: func1-python
+    environment:
+      <<: *proxy_env
+      CONDUCTOR_SERVER_URL: http://conductor-server:8080/api
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318/v1/metrics
+      OTEL_SERVICE_NAME: func1-python
+      WORKER_PORT: 8091
+      WORKER_ID: func1-python
+    depends_on:
+      - conductor-server
+      - otel-collector
+    ports:
+      - "${FUNC1_PUBLIC_PORT:-18091}:8091"
+    networks:
+      - demo
+      - observability
+    restart: unless-stopped
+
+  func2-ts:
+    build:
+      context: .
+      dockerfile: docker/func2-ts/Dockerfile
+      args: *proxy_build_args
+    container_name: func2-ts
+    environment:
+      <<: *proxy_env
+      CONDUCTOR_SERVER_URL: http://conductor-server:8080/api
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318/v1/metrics
+      OTEL_SERVICE_NAME: func2-ts
+      WORKER_PORT: 8092
+      WORKER_ID: func2-ts
+      NODE_ENV: production
+    depends_on:
+      - conductor-server
+      - otel-collector
+    ports:
+      - "${FUNC2_PUBLIC_PORT:-18092}:8092"
+    networks:
+      - demo
+      - observability
+    restart: unless-stopped
+
+  review-service:
+    build:
+      context: .
+      dockerfile: docker/review-service/Dockerfile
+      args: *proxy_build_args
+    container_name: review-service
+    environment:
+      <<: *proxy_env
+      CONDUCTOR_SERVER_URL: http://conductor-server:8080/api
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318/v1/metrics
+      OTEL_SERVICE_NAME: review-service
+      REVIEW_SERVICE_PORT: 8090
+      REVIEW_APPROVAL_THRESHOLD: ${REVIEW_APPROVAL_THRESHOLD:-5}
+      REVIEW_MAX_DELAY_MS: ${REVIEW_MAX_DELAY_MS:-5000}
+      REVIEW_REJECT_INCREMENT_MIN: ${REVIEW_REJECT_INCREMENT_MIN:-0.10}
+      REVIEW_REJECT_INCREMENT_MAX: ${REVIEW_REJECT_INCREMENT_MAX:-1.00}
+      NODE_ENV: production
+    depends_on:
+      - conductor-server
+      - otel-collector
+    ports:
+      - "${REVIEW_SERVICE_PUBLIC_PORT:-18090}:8090"
+    networks:
+      - demo
+      - observability
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:${OTEL_COLLECTOR_VERSION:-0.122.1}
+    container_name: otel-collector
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./config/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "${OTEL_GRPC_PORT:-14317}:4317"
+      - "${OTEL_HTTP_PORT:-14318}:4318"
+      - "${OTEL_PROM_PORT:-18889}:8889"
+    networks:
+      - observability
+    restart: unless-stopped
+
+  vmagent:
+    image: victoriametrics/vmagent:${VICTORIA_METRICS_VERSION:-v1.112.0}
+    container_name: vmagent
+    command:
+      - --promscrape.config=/etc/vmagent/prometheus.yml
+      - --remoteWrite.url=http://victoria-metrics:8428/api/v1/write
+      - --remoteWrite.forceVMProto=true
+      - --remoteWrite.flushInterval=2s
+      - --remoteWrite.tmpDataPath=/vmagent-remotewrite-data
+    volumes:
+      - ./config/vmagent/prometheus.yml:/etc/vmagent/prometheus.yml:ro
+      - vmagent_data:/vmagent-remotewrite-data
+    depends_on:
+      - victoria-metrics
+      - otel-collector
+      - func1-python
+      - func2-ts
+      - review-service
+      - conductor-server
+    ports:
+      - "${VMAGENT_PORT:-18429}:8429"
+    networks:
+      - observability
+    restart: unless-stopped
+
+  victoria-metrics:
+    image: victoriametrics/victoria-metrics:${VICTORIA_METRICS_VERSION:-v1.112.0}
+    container_name: victoria-metrics
+    command:
+      - --storageDataPath=/victoria-metrics-data
+      - --httpListenAddr=:8428
+    volumes:
+      - victoria_metrics_data:/victoria-metrics-data
+    ports:
+      - "${VICTORIA_METRICS_PORT:-18428}:8428"
+    networks:
+      - observability
+    restart: unless-stopped
+
+  victoria-logs:
+    image: victoriametrics/victoria-logs:${VICTORIA_LOGS_VERSION:-v1.18.0-victorialogs}
+    container_name: victoria-logs
+    command:
+      - --storageDataPath=/victoria-logs-data
+      - --httpListenAddr=:9428
+    volumes:
+      - victoria_logs_data:/victoria-logs-data
+    ports:
+      - "${VICTORIA_LOGS_PORT:-19428}:9428"
+    networks:
+      - observability
+    restart: unless-stopped
+
+  vector:
+    image: timberio/vector:${VECTOR_VERSION:-0.41.1-debian}
+    container_name: vector
+    command: ["--config", "/etc/vector/vector.yaml"]
+    depends_on:
+      - victoria-logs
+    volumes:
+      - ./config/vector/vector.yaml:/etc/vector/vector.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - observability
+    restart: unless-stopped
+
+  grafana:
+    build:
+      context: .
+      dockerfile: docker/grafana/Dockerfile
+      args:
+        GRAFANA_VERSION: ${GRAFANA_VERSION:-11.5.2}
+        VICTORIALOGS_PLUGIN_VERSION: 0.26.3
+    container_name: grafana
+    environment:
+      <<: *proxy_env
+      GF_PATHS_PLUGINS: /opt/grafana-plugins
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    depends_on:
+      - victoria-metrics
+      - victoria-logs
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "${GRAFANA_PORT:-13000}:3000"
+    networks:
+      - observability
+    restart: unless-stopped
+
+networks:
+  demo:
+    driver: bridge
+  observability:
+    driver: bridge
+
+volumes:
+  conductor_postgres_data:
+  vmagent_data:
+  victoria_metrics_data:
+  victoria_logs_data:
+  grafana_data:

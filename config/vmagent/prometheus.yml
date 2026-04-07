@@ -1,0 +1,39 @@
+global:
+  scrape_interval: 5s
+  scrape_timeout: 4s
+
+scrape_configs:
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8889"]
+        labels:
+          metric_scope: application
+
+  - job_name: func1-python
+    static_configs:
+      - targets: ["func1-python:8091"]
+        labels:
+          metric_scope: process
+          service: func1-python
+
+  - job_name: func2-ts
+    static_configs:
+      - targets: ["func2-ts:8092"]
+        labels:
+          metric_scope: process
+          service: func2-ts
+
+  - job_name: review-service
+    static_configs:
+      - targets: ["review-service:8090"]
+        labels:
+          metric_scope: process
+          service: review-service
+
+  - job_name: conductor-server
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["conductor-server:8080"]
+        labels:
+          metric_scope: platform
+          service: conductor-server
