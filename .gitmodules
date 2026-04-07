@@ -1,0 +1,9 @@
+[submodule "reference/observability-platform-demo"]
+	path = reference/observability-platform-demo
+	url = git@github.com:Yikai-Liao/observability-platform-demo.git
+[submodule "reference/annex_demo"]
+	path = reference/annex_demo
+	url = git@github.com:Yikai-Liao/annex_demo.git
+[submodule "reference/nomad-demo"]
+	path = reference/nomad-demo
+	url = git@github.com:Yikai-Liao/nomad-demo.git
