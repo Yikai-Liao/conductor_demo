@@ -1,0 +1,17 @@
+{
+  "service": {
+    "name": "otel-collector-metrics",
+    "id": "otel-collector-metrics",
+    "address": "otel-collector",
+    "port": 8889,
+    "checks": [
+      {
+        "id": "otel-collector-metrics-http",
+        "name": "otel collector metrics http",
+        "http": "http://otel-collector:8889/metrics",
+        "interval": "10s",
+        "timeout": "2s"
+      }
+    ]
+  }
+}

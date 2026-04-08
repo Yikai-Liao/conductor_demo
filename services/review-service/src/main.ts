@@ -19,6 +19,7 @@ const APPROVAL_THRESHOLD = Number(process.env.REVIEW_APPROVAL_THRESHOLD ?? 5);
 const MAX_DELAY_MS = Number(process.env.REVIEW_MAX_DELAY_MS ?? 5000);
 const REJECT_INCREMENT_MIN = Number(process.env.REVIEW_REJECT_INCREMENT_MIN ?? 0.1);
 const REJECT_INCREMENT_MAX = Number(process.env.REVIEW_REJECT_INCREMENT_MAX ?? 1.0);
+const REVIEW_API_TOKEN = process.env.REVIEW_API_TOKEN?.trim() ?? "";
 
 const { meter, tracer } = setupTelemetry(SERVICE_NAME, OTLP_ENDPOINT);
 const reviewCounter = meter.createCounter("conductor_demo_review_decisions_total", {
@@ -41,6 +42,12 @@ const requestCounter = new Counter({
 const failureCounter = new Counter({
   name: "conductor_demo_review_failures_total",
   help: "Review failures observed by the review service",
+  registers: [promRegistry],
+});
+const reviewDecisionsProm = new Counter({
+  name: "conductor_demo_review_decisions_total",
+  help: "Total review decisions emitted by the review service",
+  labelNames: ["service", "decision"] as const,
   registers: [promRegistry],
 });
 const pendingGauge = new Gauge({
@@ -148,6 +155,14 @@ function parseLimit(url: URL, fallback: number): number {
   return Number(url.searchParams.get("limit") ?? fallback);
 }
 
+function isAuthorized(request: IncomingMessage): boolean {
+  if (!REVIEW_API_TOKEN) {
+    return true;
+  }
+
+  return request.headers.authorization === `Bearer ${REVIEW_API_TOKEN}`;
+}
+
 async function listPendingReviews(workflowId: string | null, limit: number): Promise<ReturnType<typeof extractPendingReviewTasks>> {
   const workflows: ConductorWorkflow[] = [];
 
@@ -247,6 +262,10 @@ async function processDecision(
         service: SERVICE_NAME,
       });
       durationHistogram.observe(durationMs / 1000);
+      reviewDecisionsProm.inc({
+        service: SERVICE_NAME,
+        decision: decision.decision,
+      });
       logEvent("INFO", "review completed", {
         decision: decision.decision,
         delay_ms: String(delayMs),
@@ -285,6 +304,15 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
       "Content-Length": Buffer.byteLength(body),
     });
     response.end(body);
+    return;
+  }
+
+  if (route.startsWith("/reviews/") && !isAuthorized(request)) {
+    writeJson(route, response, 401, {
+      ok: false,
+      error: "unauthorized",
+      service: SERVICE_NAME,
+    });
     return;
   }
 

@@ -1,0 +1,17 @@
+{
+  "service": {
+    "name": "otel-collector-otlp-http",
+    "id": "otel-collector-otlp-http",
+    "address": "otel-collector",
+    "port": 4318,
+    "checks": [
+      {
+        "id": "otel-collector-otlp-http-tcp",
+        "name": "otel collector otlp http tcp",
+        "tcp": "otel-collector:4318",
+        "interval": "10s",
+        "timeout": "2s"
+      }
+    ]
+  }
+}

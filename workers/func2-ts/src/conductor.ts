@@ -24,7 +24,7 @@ export class ConductorClient {
   }
 
   async updateTask(payload: UpdateTaskPayload): Promise<unknown> {
-    return this.requestJson("/tasks", {
+    return this.request("/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -32,6 +32,15 @@ export class ConductorClient {
   }
 
   private async requestJson<T>(path: string, init?: RequestInit): Promise<T | null> {
+    const text = await this.request(path, init);
+    if (text === null) {
+      return null;
+    }
+
+    return JSON.parse(text) as T;
+  }
+
+  private async request(path: string, init?: RequestInit): Promise<string | null> {
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,
       headers: {
@@ -49,6 +58,6 @@ export class ConductorClient {
       return null;
     }
 
-    return JSON.parse(text) as T;
+    return text;
   }
 }

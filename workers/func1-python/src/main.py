@@ -39,6 +39,11 @@ task_duration = meter.create_histogram(
 poll_counter = Counter("conductor_demo_python_polls_total", "Poll attempts made by the Python worker")
 failure_counter = Counter("conductor_demo_python_failures_total", "Failures observed by the Python worker")
 inflight_gauge = Gauge("conductor_demo_python_inflight", "In-flight tasks in the Python worker")
+task_runs_prom = Counter(
+    "conductor_demo_task_runs_total",
+    "Total completed Conductor demo task executions",
+    labelnames=("service", "result"),
+)
 duration_histogram = Histogram(
     "conductor_demo_python_task_duration_seconds",
     "Task processing time in seconds for the Python worker",
@@ -196,6 +201,7 @@ def complete_task(task: dict) -> None:
                 },
             )
             duration_histogram.observe(elapsed_ms / 1000)
+            task_runs_prom.labels(service=SERVICE_NAME, result="completed").inc()
             log_event(
                 "INFO",
                 "func1 task completed",

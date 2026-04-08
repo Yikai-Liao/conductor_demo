@@ -77,7 +77,7 @@ if [[ "${auto_review}" == "1" ]]; then
       break
     fi
 
-    curl -fsS \
+    review_curl -fsS \
       -X POST \
       "${REVIEW_SERVICE_URL}/reviews/auto-review?limit=${count}&concurrency=${AUTO_REVIEW_CONCURRENCY}" >/dev/null || true
     sleep 1

@@ -3,37 +3,24 @@ global:
   scrape_timeout: 4s
 
 scrape_configs:
-  - job_name: otel-collector
-    static_configs:
-      - targets: ["otel-collector:8889"]
-        labels:
-          metric_scope: application
+  - job_name: consul-services
+    consul_sd_configs:
+      - server: host.docker.internal:8500
+    relabel_configs:
+      - source_labels: [__meta_consul_service]
+        regex: (conductor-api|func1-python|func2-ts|review-service|otel-collector-metrics)
+        action: keep
 
-  - job_name: func1-python
-    static_configs:
-      - targets: ["func1-python:8091"]
-        labels:
-          metric_scope: process
-          service: func1-python
+      - source_labels: [__meta_consul_service]
+        regex: conductor-api
+        target_label: __metrics_path__
+        replacement: /actuator/prometheus
 
-  - job_name: func2-ts
-    static_configs:
-      - targets: ["func2-ts:8092"]
-        labels:
-          metric_scope: process
-          service: func2-ts
+      - source_labels: [__meta_consul_service]
+        regex: (func1-python|func2-ts|review-service|otel-collector-metrics)
+        target_label: __metrics_path__
+        replacement: /metrics
 
-  - job_name: review-service
-    static_configs:
-      - targets: ["review-service:8090"]
-        labels:
-          metric_scope: process
-          service: review-service
-
-  - job_name: conductor-server
-    metrics_path: /actuator/prometheus
-    static_configs:
-      - targets: ["conductor-server:8080"]
-        labels:
-          metric_scope: platform
-          service: conductor-server
+      - source_labels: [__meta_consul_service]
+        target_label: service
+        replacement: $1

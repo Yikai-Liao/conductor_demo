@@ -29,6 +29,24 @@ SET_VARIABLE init_state
 - 否则打回，并给 `x` 增加一个 `0.10 ~ 1.00` 的随机增量
 - review service 会在 `0 ~ 5000ms` 内随机 sleep，模拟人工审核延迟
 
+## Workflow 编排方式
+
+推荐使用 Orkes Developer Edition 的可视化 workflow editor 编排工作流：
+
+- 入口：`https://developer.orkescloud.com/workflowDef`
+- 用途：可视化查看、编辑、调试 workflow definition
+- 本地仓库仍以 [workflows/human-review-demo.json](/home/lyk/qiyin/conductor/workflows/human-review-demo.json) 作为单一真相源
+
+这套 demo 的运行面仍然是本仓库自建的 `Nomad + Consul + Vault + Conductor OSS`。Orkes Developer Edition 只作为 workflow 编排工具使用，不作为本地 demo 的运行时依赖。
+
+推荐工作方式：
+
+1. 先在 `https://developer.orkescloud.com/workflowDef` 里做 workflow 编排和结构验证。
+2. 把最终 definition 回写到 [workflows/human-review-demo.json](/home/lyk/qiyin/conductor/workflows/human-review-demo.json)。
+3. 通过 [scripts/register-defs.sh](/home/lyk/qiyin/conductor/scripts/register-defs.sh) / [scripts/seed.sh](/home/lyk/qiyin/conductor/scripts/seed.sh) 注册到本地自建 Conductor。
+
+不要把只存在于 Orkes 页面里的临时修改当成最终交付；没有回写到仓库 JSON 的改动，不会进入这套 demo 的实际运行环境。
+
 ## 目录
 
 ```text
@@ -56,18 +74,43 @@ SET_VARIABLE init_state
 
 ```bash
 cp .env.example .env
+./scripts/up.sh
+./scripts/seed.sh
+```
+
+如果你就想一条命令跑完，也可以：
+
+```bash
 ./scripts/bootstrap.sh
 ```
 
-脚本会自动：
+分层脚本职责：
 
-- 准备 `.env`
-- 下载 Grafana 的 VictoriaLogs 插件包
-- `docker compose up -d --build`
-- 等待 Conductor / workers / review service / Victoria / Grafana 就绪
-- 注册 task definitions 和 workflow definition
+- `scripts/up.sh`
+  - 准备 `.env`
+  - 启动宿主机 `Consul`
+  - `docker compose up -d --build` 拉起基础设施
+  - 注册基础设施到 `Consul`
+  - 启动宿主机 `Nomad`
+- `scripts/seed.sh`
+  - 构建业务镜像
+  - 初始化 `Vault` / `Consul KV`
+  - 提交 `Nomad jobs`
+  - 注册 task definitions 和 workflow definition
 
 ## 常用命令
+
+基础设施启动：
+
+```bash
+./scripts/up.sh
+```
+
+控制面初始化与 job 提交：
+
+```bash
+./scripts/seed.sh
+```
 
 单条 happy path：
 
@@ -139,11 +182,10 @@ curl -X POST "${REVIEW_SERVICE_URL}/reviews/auto-review?limit=1000&concurrency=3
 ## 演示入口
 
 - Conductor API: `http://localhost:18080/api`
-- Conductor UI: `http://localhost:18127`
-- Review service: `http://localhost:18090`
+- Conductor UI: `http://localhost:18080`
+- Swagger UI: `http://localhost:18080/swagger-ui/index.html`
+- Review service: `http://localhost:18080/review`
 - Grafana: `http://localhost:13000`
-- VictoriaMetrics: `http://localhost:18428`
-- VictoriaLogs: `http://localhost:19428`
 
 Grafana 默认账号密码：
 
@@ -151,6 +193,10 @@ Grafana 默认账号密码：
 - 密码：`admin`
 
 ## 搜索说明
+
+Conductor UI 的真正控制面已经挂在 `http://localhost:18080`。如果你打开根路径只看到 `Swagger Documentation / User Guide`，说明网关没有连到独立的 `conductor-ui` Nomad job，而是误连到了 server 根页。
+
+如果你要修改 workflow definition，优先使用 `https://developer.orkescloud.com/workflowDef` 做编排，再把结果同步回 [workflows/human-review-demo.json](/home/lyk/qiyin/conductor/workflows/human-review-demo.json)。本地 OSS UI 更适合查看和小幅 JSON 调整，不要把它当成主要编排入口。
 
 仓库同时提供两条结果筛选路径：
 

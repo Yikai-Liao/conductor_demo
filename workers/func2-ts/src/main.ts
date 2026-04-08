@@ -37,6 +37,12 @@ const failureCounter = new Counter({
   help: "Failures observed by the TypeScript worker",
   registers: [promRegistry],
 });
+const taskRunsProm = new Counter({
+  name: "conductor_demo_task_runs_total",
+  help: "Total completed Conductor demo task executions",
+  labelNames: ["service", "result"] as const,
+  registers: [promRegistry],
+});
 const inflightGauge = new Gauge({
   name: "conductor_demo_ts_inflight",
   help: "In-flight tasks in the TypeScript worker",
@@ -173,6 +179,10 @@ async function completeTask(task: ConductorTask): Promise<void> {
           task_type: TASK_TYPE,
         });
         durationHistogram.observe(durationMs / 1000);
+        taskRunsProm.inc({
+          service: SERVICE_NAME,
+          result: "completed",
+        });
         logEvent("INFO", "func2 task completed", {
           duration_ms: durationMs.toString(),
           taskId: task.taskId,

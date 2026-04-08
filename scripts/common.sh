@@ -6,6 +6,26 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 load_env() {
+  local preserve_keys=(
+    CONSUL_HTTP_ADDR
+    CONDUCTOR_SERVER_URL
+    CONDUCTOR_SWAGGER_URL
+    CONDUCTOR_UI_URL
+    GATEWAY_URL
+    GRAFANA_URL
+    NOMAD_ADDR
+    REVIEW_SERVICE_URL
+    VAULT_ADDR
+    VAULT_TOKEN
+    VL_INTERNAL_URL
+    VM_INTERNAL_URL
+  )
+  local key
+
+  for key in "${preserve_keys[@]}"; do
+    eval "__preserve_${key}=\${${key}-__UNSET__}"
+  done
+
   if [[ -f "${ROOT_DIR}/.env.example" ]]; then
     set -a
     # shellcheck disable=SC1091
@@ -20,19 +40,45 @@ load_env() {
     set +a
   fi
 
-  : "${CONDUCTOR_SERVER_URL:=http://localhost:8080/api}"
-  : "${CONDUCTOR_UI_URL:=http://localhost:8127}"
-  : "${REVIEW_SERVICE_URL:=http://localhost:8090}"
-  : "${GRAFANA_URL:=http://localhost:3000}"
-  : "${VICTORIA_METRICS_URL:=http://localhost:8428}"
-  : "${VICTORIA_LOGS_URL:=http://localhost:9428}"
+  for key in "${preserve_keys[@]}"; do
+    eval "preserved_value=\${__preserve_${key}}"
+    if [[ "${preserved_value}" != "__UNSET__" ]]; then
+      printf -v "${key}" '%s' "${preserved_value}"
+      export "${key}"
+    fi
+  done
+
+  : "${DOCKER_NETWORK:=conductor-demo}"
+  : "${GATEWAY_URL:=http://localhost:18080}"
+  : "${CONDUCTOR_SERVER_URL:=${GATEWAY_URL}/api}"
+  : "${CONDUCTOR_UI_URL:=${GATEWAY_URL}}"
+  : "${REVIEW_SERVICE_URL:=${GATEWAY_URL}/review}"
+  : "${NOMAD_ADDR:=http://127.0.0.1:4646}"
+  : "${CONSUL_HTTP_ADDR:=http://127.0.0.1:8500}"
+  : "${VAULT_ADDR:=http://localhost:18200}"
+  : "${VAULT_TOKEN:=root}"
+  : "${GRAFANA_URL:=http://localhost:13000}"
+  : "${VM_INTERNAL_URL:=http://victoria-metrics:8428}"
+  : "${VL_INTERNAL_URL:=http://victoria-logs:9428}"
+  : "${REVIEW_API_TOKEN:=review-demo-token}"
   : "${REVIEW_APPROVAL_THRESHOLD:=5}"
+  : "${REVIEW_MAX_DELAY_MS:=5000}"
+  : "${REVIEW_REJECT_INCREMENT_MIN:=0.10}"
+  : "${REVIEW_REJECT_INCREMENT_MAX:=1.00}"
   : "${RUN_BULK_COUNT:=1000}"
   : "${RUN_BULK_CONCURRENCY:=32}"
   : "${AUTO_REVIEW_CONCURRENCY:=32}"
   : "${SEARCH_THRESHOLD:=10.1}"
   : "${SEARCH_PAGE_SIZE:=1000}"
   : "${SEARCH_PROOF_FREETEXT:=output.y:>10.1}"
+  : "${CONDUCTOR_VERSION:=3.22.2}"
+  : "${POSTGRES_DB:=conductor}"
+  : "${POSTGRES_USER:=conductor}"
+  : "${POSTGRES_PASSWORD:=conductor}"
+  : "${CONDUCTOR_UI_IMAGE:=conductor-demo/conductor-ui:dev}"
+  : "${FUNC1_IMAGE:=conductor-demo/func1-python:dev}"
+  : "${FUNC2_IMAGE:=conductor-demo/func2-ts:dev}"
+  : "${REVIEW_SERVICE_IMAGE:=conductor-demo/review-service:dev}"
 }
 
 require_command() {
@@ -41,6 +87,19 @@ require_command() {
     echo "缺少命令: ${cmd}" >&2
     exit 1
   fi
+}
+
+ensure_runtime_dirs() {
+  mkdir -p \
+    "${ROOT_DIR}/generated" \
+    "${ROOT_DIR}/runtime/host-consul" \
+    "${ROOT_DIR}/runtime/host-nomad" \
+    "${ROOT_DIR}/runtime/postgres" \
+    "${ROOT_DIR}/runtime/vector" \
+    "${ROOT_DIR}/runtime/vault" \
+    "${ROOT_DIR}/runtime/victoria-logs" \
+    "${ROOT_DIR}/runtime/victoria-metrics" \
+    "${ROOT_DIR}/runtime/vmagent"
 }
 
 wait_for_http() {
@@ -82,6 +141,48 @@ wait_for_contains() {
     sleep 2
     attempt=$((attempt + 1))
   done
+}
+
+wait_for_consul_service() {
+  local service_name="$1"
+  local max_attempts="${2:-90}"
+  local attempt=1
+  local response
+
+  while true; do
+    response="$(curl -fsS "${CONSUL_HTTP_ADDR}/v1/health/service/${service_name}?passing=1" 2>/dev/null || true)"
+    if [[ -n "${response}" && "${response}" != "[]" ]]; then
+      echo "${response}"
+      return 0
+    fi
+
+    if [[ "${attempt}" -ge "${max_attempts}" ]]; then
+      echo "等待 Consul 服务超时: ${service_name}" >&2
+      exit 1
+    fi
+
+    sleep 2
+    attempt=$((attempt + 1))
+  done
+}
+
+toolbox_exec() {
+  docker compose exec -T toolbox "$@"
+}
+
+render_config_template() {
+  local src="$1"
+  local dst="$2"
+
+  sed -e "s#@@ROOT_DIR@@#${ROOT_DIR}#g" "${src}" > "${dst}"
+}
+
+review_curl() {
+  if [[ -n "${REVIEW_API_TOKEN:-}" ]]; then
+    curl -H "Authorization: Bearer ${REVIEW_API_TOKEN}" "$@"
+  else
+    curl "$@"
+  fi
 }
 
 workflow_json() {
@@ -133,7 +234,7 @@ wait_for_pending_review() {
   local count
 
   while true; do
-    response="$(curl -fsS "${REVIEW_SERVICE_URL}/reviews/pending?workflowId=${workflow_id}&limit=20")"
+    response="$(review_curl -fsS "${REVIEW_SERVICE_URL}/reviews/pending?workflowId=${workflow_id}&limit=20")"
     count="$(echo "${response}" | jq -r '.count')"
     if [[ "${count}" != "0" ]]; then
       echo "${response}"

@@ -1,0 +1,17 @@
+{
+  "service": {
+    "name": "postgres",
+    "id": "postgres",
+    "address": "postgres",
+    "port": 5432,
+    "checks": [
+      {
+        "id": "postgres-tcp",
+        "name": "postgres tcp",
+        "tcp": "postgres:5432",
+        "interval": "10s",
+        "timeout": "2s"
+      }
+    ]
+  }
+}

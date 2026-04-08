@@ -48,8 +48,33 @@ done
 workflow_id="$(start_workflow "${x}" "${correlation_id}" "${auto_review}" "${review_mode}" "single" "${approval_threshold}")"
 
 if [[ "${auto_review}" == "1" ]]; then
-  wait_for_pending_review "${workflow_id}" >/dev/null
-  curl -fsS -X POST "${REVIEW_SERVICE_URL}/reviews/auto-review?workflowId=${workflow_id}&limit=1&concurrency=1" >/dev/null
+  if [[ "${wait_for_completion}" == "1" ]]; then
+    while true; do
+      status="$(workflow_status "${workflow_id}")"
+
+      case "${status}" in
+        COMPLETED|FAILED|TERMINATED|TIMED_OUT)
+          break
+          ;;
+        *)
+          ;;
+      esac
+
+      pending="$(review_curl -fsS "${REVIEW_SERVICE_URL}/reviews/pending?workflowId=${workflow_id}&limit=20")"
+      pending_count="$(echo "${pending}" | jq -r '.count')"
+
+      if [[ "${pending_count}" != "0" ]]; then
+        review_curl -fsS \
+          -X POST \
+          "${REVIEW_SERVICE_URL}/reviews/auto-review?workflowId=${workflow_id}&limit=${pending_count}&concurrency=1" >/dev/null
+      else
+        sleep 1
+      fi
+    done
+  else
+    wait_for_pending_review "${workflow_id}" >/dev/null
+    review_curl -fsS -X POST "${REVIEW_SERVICE_URL}/reviews/auto-review?workflowId=${workflow_id}&limit=1&concurrency=1" >/dev/null
+  fi
 fi
 
 if [[ "${wait_for_completion}" == "1" ]]; then

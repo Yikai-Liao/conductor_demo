@@ -20,9 +20,15 @@ class ConductorClient:
         )
 
     def update_task(self, payload: dict) -> dict | None:
-        return self._request_json("POST", "/tasks", payload)
+        return self._request_json("POST", "/tasks", payload, expect_json=False)
 
-    def _request_json(self, method: str, path: str, payload: dict | None = None) -> dict | list | None:
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        payload: dict | None = None,
+        expect_json: bool = True,
+    ) -> dict | list | str | None:
         data = None
         headers = {"Accept": "application/json"}
         if payload is not None:
@@ -47,4 +53,9 @@ class ConductorClient:
 
         if not body or body == "null":
             return None
+        if not expect_json:
+            try:
+                return json.loads(body)
+            except json.JSONDecodeError:
+                return body
         return json.loads(body)

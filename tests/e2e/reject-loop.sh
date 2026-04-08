@@ -13,7 +13,7 @@ workflow_id="$("${ROOT_DIR}/scripts/run-one.sh" --x 1 | jq -r '.workflowId')"
 first_pending="$(wait_for_pending_review "${workflow_id}")"
 first_task_id="$(echo "${first_pending}" | jq -r '.items[0].taskId')"
 
-curl -fsS \
+review_curl -fsS \
   -X POST \
   -H "Content-Type: application/json" \
   -d '{"comment":"第一次人工打回"}' \
@@ -32,7 +32,7 @@ while true; do
   if [[ "${status}" == "COMPLETED" ]]; then
     break
   fi
-  curl -fsS -X POST "${REVIEW_SERVICE_URL}/reviews/auto-review?workflowId=${workflow_id}&limit=1&concurrency=1" >/dev/null
+  review_curl -fsS -X POST "${REVIEW_SERVICE_URL}/reviews/auto-review?workflowId=${workflow_id}&limit=1&concurrency=1" >/dev/null
   sleep 1
 done
 

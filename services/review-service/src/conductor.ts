@@ -53,7 +53,7 @@ export class ConductorClient {
   }
 
   async updateTask(payload: UpdateTaskPayload): Promise<unknown> {
-    return this.requireJson("/tasks", {
+    return this.request("/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -61,6 +61,15 @@ export class ConductorClient {
   }
 
   private async requireJson<T>(path: string, init?: RequestInit): Promise<T> {
+    const text = await this.request(path, init);
+    if (text === null) {
+      throw new Error(`Conductor ${init?.method ?? "GET"} ${path} returned empty response`);
+    }
+
+    return JSON.parse(text) as T;
+  }
+
+  private async request(path: string, init?: RequestInit): Promise<string | null> {
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...init,
       headers: {
@@ -75,9 +84,9 @@ export class ConductorClient {
     }
 
     if (!text || text === "null") {
-      throw new Error(`Conductor ${init?.method ?? "GET"} ${path} returned empty response`);
+      return null;
     }
 
-    return JSON.parse(text) as T;
+    return text;
   }
 }
