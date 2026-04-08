@@ -29,6 +29,16 @@ transforms:
         }
       }
       .message = string!(.message)
+      ._msg = .message
+      if exists(.ts) && !is_null(.ts) && is_string(.ts) {
+        ._time = string!(.ts)
+      } else if exists(.timestamp) && !is_null(.timestamp) {
+        if is_timestamp(.timestamp) {
+          ._time = format_timestamp!(.timestamp, format: "%+")
+        } else {
+          ._time = string!(.timestamp)
+        }
+      }
       .stream = string!(.stream)
 
   select_demo_services:
