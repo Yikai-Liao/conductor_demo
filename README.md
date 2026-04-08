@@ -1,174 +1,148 @@
-# conductor_demo
+# conductor-demo
 
-一个基于 `docker compose` 的最小 Conductor 人机协同异步工作流 DEMO：
+`conductor-demo` 是一个本地可运行的人机协同异步工作流 demo。它用 `docker compose` 只拉起基础设施，用宿主机 `Consul` / `Nomad` 做服务发现与作业调度，用 `Vault` 分发密钥，并通过 `Conductor OSS + PostgreSQL` 跑通一条 `func1 -> HUMAN review -> func2` 的最小闭环。
 
-- `Conductor + PostgreSQL` 纯 PG 存储与索引
-- `func1` 使用 Python worker
-- `review` 使用 Conductor `HUMAN` task，由 Node.js review service 通过 API 完成
-- `func2` 使用 TypeScript worker
-- `OTel metrics + Vector logs + VictoriaMetrics/VictoriaLogs + Grafana`
+这个仓库的目标不是“把容器都拉起来”，而是给 demo 操作者一条固定、可重复的演示路径：启动环境、提交 Nomad jobs、跑单条工作流、做人工审批、批量触发工作流、查看执行结果和观测数据。
 
-## 工作流
+实现细节、踩坑记录和设计取舍见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
-业务路径固定为：
+## 特性
 
-```text
-SET_VARIABLE init_state
-  -> DO_WHILE review_loop
-     -> SIMPLE func1_python
-     -> HUMAN review_gate
-     -> SET_VARIABLE update_state
-  -> SWITCH last_decision
-     -> APPROVED -> SIMPLE func2_ts
-     -> default  -> TERMINATE
-```
+- `docker compose` 只负责基础设施和网络分区模拟；业务组件通过 `Nomad jobs` 运行。
+- 服务发现走 `Consul`，配置分发走 `Nomad template + Consul KV`，密钥分发走 `Vault`。
+- 工作流由 Python `func1`、TypeScript `func2`、Node.js/TypeScript `review-service` 组成。
+- 默认只暴露操作者需要的宿主机入口；`PostgreSQL`、worker、`review-service` 容器端口、OTel、Victoria 组件都保持内部可见。
+- `workflowId`、`taskId`、`trace_id` 贯穿 worker、review、Conductor 输出、日志和指标。
+- 内置启动、注册、单跑、批量、验收脚本，适合做固定流程演示。
 
-默认自动审批规则：
-
-- `candidate_x > 5` 时审批通过
-- 否则打回，并给 `x` 增加一个 `0.10 ~ 1.00` 的随机增量
-- review service 会在 `0 ~ 5000ms` 内随机 sleep，模拟人工审核延迟
-
-## Workflow 编排方式
-
-推荐使用 Orkes Developer Edition 的可视化 workflow editor 编排工作流：
-
-- 入口：`https://developer.orkescloud.com/workflowDef`
-- 用途：可视化查看、编辑、调试 workflow definition
-- 本地仓库仍以 [workflows/human-review-demo.json](/home/lyk/qiyin/conductor/workflows/human-review-demo.json) 作为单一真相源
-
-这套 demo 的运行面仍然是本仓库自建的 `Nomad + Consul + Vault + Conductor OSS`。Orkes Developer Edition 只作为 workflow 编排工具使用，不作为本地 demo 的运行时依赖。
-
-推荐工作方式：
-
-1. 先在 `https://developer.orkescloud.com/workflowDef` 里做 workflow 编排和结构验证。
-2. 把最终 definition 回写到 [workflows/human-review-demo.json](/home/lyk/qiyin/conductor/workflows/human-review-demo.json)。
-3. 通过 [scripts/register-defs.sh](/home/lyk/qiyin/conductor/scripts/register-defs.sh) / [scripts/seed.sh](/home/lyk/qiyin/conductor/scripts/seed.sh) 注册到本地自建 Conductor。
-
-不要把只存在于 Orkes 页面里的临时修改当成最终交付；没有回写到仓库 JSON 的改动，不会进入这套 demo 的实际运行环境。
-
-## 目录
-
-```text
-.
-├── config/                     # Conductor / OTel / Vector / Grafana / vmagent 配置
-├── docker/                     # Python / TS / review-service / Grafana Dockerfile
-├── scripts/                    # 启动、注册、单跑、批量、搜索、验证脚本
-├── services/review-service/    # Node.js + TypeScript review service
-├── taskdefs/                   # func1 / func2 task definitions
-├── tests/e2e/                  # e2e 壳脚本
-├── workers/func1-python/       # Python worker
-├── workers/func2-ts/           # TypeScript worker
-└── workflows/                  # workflow definition
-```
-
-## 快速开始
+## 安装
 
 前置要求：
 
-- Docker / Docker Compose
+- Docker 与 Docker Compose
+- 宿主机已安装 `consul`
+- 宿主机已安装 `nomad`
 - `curl`
 - `jq`
 
 首次启动：
 
-```bash
+```sh
 cp .env.example .env
-./scripts/up.sh
-./scripts/seed.sh
-```
-
-如果你就想一条命令跑完，也可以：
-
-```bash
 ./scripts/bootstrap.sh
 ```
 
-分层脚本职责：
+如果你要分步执行：
 
-- `scripts/up.sh`
-  - 准备 `.env`
-  - 启动宿主机 `Consul`
-  - `docker compose up -d --build` 拉起基础设施
-  - 注册基础设施到 `Consul`
-  - 启动宿主机 `Nomad`
-- `scripts/seed.sh`
-  - 构建业务镜像
-  - 初始化 `Vault` / `Consul KV`
-  - 提交 `Nomad jobs`
-  - 注册 task definitions 和 workflow definition
-
-## 常用命令
-
-基础设施启动：
-
-```bash
+```sh
 ./scripts/up.sh
-```
-
-控制面初始化与 job 提交：
-
-```bash
 ./scripts/seed.sh
 ```
 
-单条 happy path：
+默认宿主机入口：
 
-```bash
+- `http://localhost:18080`：Gateway、Conductor UI、Conductor API、Review API
+- `http://localhost:13000`：Grafana
+- `http://localhost:18200`：Vault dev API
+- `http://127.0.0.1:4646`：Nomad UI / API
+- `http://127.0.0.1:8500`：Consul UI / API
+
+默认不直接暴露到宿主机的组件：
+
+- `PostgreSQL`
+- `func1-python`
+- `func2-ts`
+- `review-service` 容器端口
+- `otel-collector`
+- `vmagent`
+- `victoria-metrics`
+- `victoria-logs`
+- `vector`
+
+如果构建阶段需要代理，填写 `.env` 里的 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` 即可。
+
+## 使用
+
+下面这组命令对应一条真实的手工审批演示路径：拉起环境，提交一个 workflow，在 review service 里拿到待审批任务，完成审批，然后回查最终输出。
+
+```sh
+cp .env.example .env
+./scripts/bootstrap.sh
+
+export REVIEW_API_TOKEN="$(grep '^REVIEW_API_TOKEN=' .env | cut -d= -f2-)"
+workflow_id="$(./scripts/run-one.sh --x 1 | jq -r '.workflowId')"
+
+pending="$(curl -s \
+  -H "Authorization: Bearer ${REVIEW_API_TOKEN}" \
+  "http://localhost:18080/review/reviews/pending?workflowId=${workflow_id}&limit=10")"
+task_id="$(echo "${pending}" | jq -r '.items[0].taskId')"
+
+curl -s \
+  -X POST \
+  -H "Authorization: Bearer ${REVIEW_API_TOKEN}" \
+  "http://localhost:18080/review/reviews/${task_id}/approve" | jq
+
+curl -s "http://localhost:18080/api/workflow/${workflow_id}" | jq '{workflowId,status,output}'
+```
+
+演示时建议同时打开这几个页面：
+
+- `http://localhost:18080/executions`
+- `http://localhost:18080/swagger-ui/index.html`
+- `http://localhost:13000`
+
+如果你只想先验证 happy path：
+
+```sh
 ./scripts/run-one.sh --x 1 --auto-review --wait
 ```
 
-单条手工 review：
+## Workflow 编排
 
-```bash
-./scripts/run-one.sh --x 1
-curl "http://localhost:8090/reviews/pending?limit=10"
-curl -X POST "http://localhost:8090/reviews/<taskId>/approve"
-```
+推荐使用 Orkes Developer Edition 的 workflow editor 做 definition 编排和结构检查：
 
-单条 reject 回路：
+- 入口：`https://developer.orkescloud.com/workflowDef`
+- 本地运行时单一真相源：[workflows/human-review-demo.json](workflows/human-review-demo.json)
+- 注册脚本：[scripts/register-defs.sh](scripts/register-defs.sh)
 
-```bash
-./tests/e2e/reject-loop.sh
-```
+推荐工作方式：
 
-批量跑：
+1. 先在 `https://developer.orkescloud.com/workflowDef` 里调整 workflow 结构。
+2. 把最终结果回写到 [workflows/human-review-demo.json](workflows/human-review-demo.json)。
+3. 运行 `./scripts/register-defs.sh`，或直接重新执行 `./scripts/seed.sh`。
 
-```bash
-./scripts/run-bulk.sh --count 1000 --concurrency 32
-```
+本地 demo 的实际运行面仍然是这套自建的 `Nomad + Consul + Vault + Conductor OSS`。Orkes Developer Edition 只用来编排 definition，不作为本地运行时。
 
-搜索最终结果：
+## 运行拓扑
 
-```bash
-./scripts/search-output.sh --threshold 10.1
-```
+运行面分三层：
 
-验证整条链路：
+- `docker compose`：`vault`、`postgres`、`gateway`、`otel-collector`、`vector`、`victoria-metrics`、`victoria-logs`、`grafana`、`toolbox`
+- 宿主机控制面：`consul`、`nomad`
+- `Nomad jobs`：`conductor`、`conductor-ui`、`func1-python`、`review-service`、`func2-ts`
 
-```bash
-./scripts/verify.sh
-```
+配置和密钥分发方式是固定的：
 
-## Review Service API
+- `scripts/register-infra-services.sh` 把基础设施注册进 `Consul`
+- `scripts/init-control-plane.sh` 把运行参数写入 `Consul KV`，把数据库凭据和 review token 写入 `Vault`
+- `jobs/*.nomad.hcl` 通过 `service`、`key`、`secret` 在运行时解析依赖、配置和密钥
 
-待审批列表：
+这意味着业务组件不依赖写死的 compose service name，也不依赖为每个内部服务额外开宿主机端口。
 
-```bash
-curl "${REVIEW_SERVICE_URL}/reviews/pending?limit=20"
-curl "${REVIEW_SERVICE_URL}/reviews/pending?workflowId=<workflowId>&limit=20"
-```
+## 人工审批 API
 
-审批动作：
+`review-service` 通过 Gateway 暴露在 `http://localhost:18080/review`，需要带 `Authorization: Bearer ${REVIEW_API_TOKEN}`。
 
-```bash
-curl -X POST "${REVIEW_SERVICE_URL}/reviews/<taskId>/approve"
-curl -X POST "${REVIEW_SERVICE_URL}/reviews/<taskId>/reject"
-curl -X POST "${REVIEW_SERVICE_URL}/reviews/<taskId>/auto-review"
-curl -X POST "${REVIEW_SERVICE_URL}/reviews/auto-review?limit=1000&concurrency=32"
-```
+常用接口：
 
-返回字段统一包含：
+- `GET /review/reviews/pending?limit=20`
+- `GET /review/reviews/pending?workflowId=<workflowId>&limit=20`
+- `POST /review/reviews/<taskId>/approve`
+- `POST /review/reviews/<taskId>/reject`
+- `POST /review/reviews/<taskId>/auto-review`
+- `POST /review/reviews/auto-review?limit=1000&concurrency=32`
+
+审批返回会包含这些核心字段：
 
 - `workflowId`
 - `taskId`
@@ -179,67 +153,109 @@ curl -X POST "${REVIEW_SERVICE_URL}/reviews/auto-review?limit=1000&concurrency=3
 - `trace_id`
 - `processed_at`
 
-## 演示入口
+这条链路对应的代码位置：
 
-- Conductor API: `http://localhost:18080/api`
-- Conductor UI: `http://localhost:18080`
-- Swagger UI: `http://localhost:18080/swagger-ui/index.html`
-- Review service: `http://localhost:18080/review`
-- Grafana: `http://localhost:13000`
+- review service：[services/review-service](services/review-service)
+- task definitions：[taskdefs/func1-python.json](taskdefs/func1-python.json)、[taskdefs/func2-ts.json](taskdefs/func2-ts.json)
+- workflow definition：[workflows/human-review-demo.json](workflows/human-review-demo.json)
+
+## 结果观察
+
+单条执行推荐直接看 `Conductor UI`：
+
+1. 打开 `http://localhost:18080/executions`
+2. 按 `workflowType=human_review_demo`、`status`、时间范围收敛列表
+3. 点开 execution detail，查看 `func1_python -> review_gate -> func2_ts` 的执行顺序
+4. 在 output 里查看 `decision`、`comment`、`final_x`、`y`
+
+批量演示常用命令：
+
+```sh
+./scripts/run-bulk.sh --count 1000 --concurrency 32
+./scripts/search-output.sh --threshold 10.1
+```
+
+仓库同时保留一个搜索能力自检脚本：
+
+```sh
+./scripts/prove-search.sh
+```
+
+它只用来检查当前 Conductor search backend 是否已经能直接命中 `output.y` 这类结果字段。稳定演示路径仍然应该是：先在 `Conductor UI` 里按 workflow、状态、时间范围收敛，再结合输出详情或 `search-output.sh` 做阈值核对。
+
+## 可观测性
+
+观测入口是 `http://localhost:13000`。仓库已经预置 Grafana 数据源和 dashboard，用来把 worker、review、Conductor 的指标和日志串起来。
 
 Grafana 默认账号密码：
 
 - 用户名：`admin`
 - 密码：`admin`
 
-## 搜索说明
+重点看这些关联字段：
 
-Conductor UI 的真正控制面已经挂在 `http://localhost:18080`。如果你打开根路径只看到 `Swagger Documentation / User Guide`，说明网关没有连到独立的 `conductor-ui` Nomad job，而是误连到了 server 根页。
+- `workflowId`
+- `taskId`
+- `trace_id`
 
-如果你要修改 workflow definition，优先使用 `https://developer.orkescloud.com/workflowDef` 做编排，再把结果同步回 [workflows/human-review-demo.json](/home/lyk/qiyin/conductor/workflows/human-review-demo.json)。本地 OSS UI 更适合查看和小幅 JSON 调整，不要把它当成主要编排入口。
+常用验收命令：
 
-仓库同时提供两条结果筛选路径：
-
-1. `scripts/prove-search.sh`
-   作用：尝试验证 Conductor search API 的 `freeText` 查询是否能直接命中 `output.y`
-2. `scripts/search-output.sh`
-   作用：固定 fallback，先按 `workflowType + status` 拉执行，再本地过滤 `output.y > threshold`
-
-如果 UI / API 对 `output.y` 的自由文本索引表现不稳定，演示口径应切换为：
-
-- `Conductor UI` 负责按 workflow/status/time range 收敛范围
-- `CLI fallback` 负责精确结果筛选
-
-## 测试
-
-Python worker：
-
-```bash
-python3 -m pytest workers/func1-python/tests/test_func1_worker.py
-```
-
-TypeScript worker：
-
-```bash
-cd workers/func2-ts
-npm install
-npm test
-```
-
-Review service：
-
-```bash
-cd services/review-service
-npm install
-npm test
-```
-
-E2E：
-
-```bash
+```sh
+./scripts/verify.sh
+./tests/e2e/control-plane.sh
 ./tests/e2e/happy-path.sh
 ./tests/e2e/reject-loop.sh
 ./tests/e2e/bulk-search.sh
 ./tests/e2e/observability.sh
 ./tests/e2e/failure-surface.sh
 ```
+
+## 仓库结构
+
+```text
+.
+├── config/
+│   ├── conductor/
+│   ├── consul/
+│   ├── grafana/
+│   ├── nomad/
+│   ├── otel-collector/
+│   ├── vault/
+│   ├── vector/
+│   └── vmagent/
+├── docker/
+├── gateway/
+├── jobs/
+├── scripts/
+├── services/review-service/
+├── taskdefs/
+├── tests/e2e/
+├── toolbox/
+├── workers/
+│   ├── func1-python/
+│   └── func2-ts/
+└── workflows/
+```
+
+## 相关组件
+
+- [ARCHITECTURE.md](ARCHITECTURE.md)
+- [workflows/human-review-demo.json](workflows/human-review-demo.json)
+- [taskdefs/func1-python.json](taskdefs/func1-python.json)
+- [taskdefs/func2-ts.json](taskdefs/func2-ts.json)
+- [jobs](jobs)
+- [services/review-service](services/review-service)
+- [workers/func1-python](workers/func1-python)
+- [workers/func2-ts](workers/func2-ts)
+- [scripts](scripts)
+
+## 相关参考
+
+- [Orkes Developer Edition Workflow Editor](https://developer.orkescloud.com/workflowDef)
+- [reference/nomad-demo](reference/nomad-demo/README.md)
+- [reference/observability-platform-demo](reference/observability-platform-demo/README.md)
+- [.agents/skills/conductor/SKILL.md](.agents/skills/conductor/SKILL.md)
+
+## 许可
+
+当前仓库没有单独提供 `LICENSE` 文件。对外分发或复用前，请先补齐授权声明。

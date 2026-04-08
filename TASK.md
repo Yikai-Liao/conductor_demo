@@ -5,6 +5,36 @@
 * 在可观测性上，全面使用otel + vector + victoria 的组合，参考 reference/observability-platform-demo
 * 工作流调度器使用conductor，纯 postgre 部署方案。 参考.agents/skills/conductor
 
+## 当前实现状态（2026-04-08）
+
+下面这段是对当前仓库状态的回写，优先级高于后文仍保留的 planning 过程记录。
+
+### 已落地
+
+- `docker compose` 现在只负责基础设施，业务组件改成 `Nomad jobs`
+- 宿主机跑 `Consul` / `Nomad`，compose 内跑 `Vault dev server`
+- 服务发现通过 `Consul`，配置分发通过 `Nomad template + Consul KV`，密钥分发通过 `Vault`
+- `Conductor server`、`conductor-ui`、`func1-python`、`review-service`、`func2-ts` 都已经有对应的 `jobs/*.nomad.hcl`
+- workflow definition、task definitions、review API、bulk / verify / control-plane 脚本都已经落地到仓库
+- `Conductor UI` 入口已经恢复为真实 UI，不再是只显示 Swagger 根页
+- README 已改成面向操作者的运行手册
+
+### 现场验收关注点
+
+- 单条 happy path、reject 回路、控制面与观测链路都已有对应脚本和测试入口
+- `Conductor UI` 里按 `workflowType / status / time range` 收敛与 execution detail drill-down 是稳定演示路径
+- `output.y > 10.1` 这类数值筛选是否能完全在 UI 内完成，仍然取决于当前 search backend 对输出字段的索引表现，所以仓库保留了显式校验脚本
+
+### 文档入口
+
+- 操作说明见 `README.md`
+- 实现细节、踩坑和设计取舍见 `ARCHITECTURE.md`
+
+说明：
+
+- 后文很多章节保留了 planning 阶段的审查过程，用来说明为什么最后会收敛到现在这套实现。
+- 如果后文某些 gap 描述和当前代码存在性冲突，以本节、`README.md`、`ARCHITECTURE.md` 和仓库实际文件为准。
+
 ## 整体架构
 我们在模拟中，整体上要切分为两个网络区域，conductor 和 pg 是准备部署在云服务的，所以是一个公网服务，走下面这套连接方式与内网通讯，注意需要处理鉴权问题。公网和内网之间的通信可以添加一些东西去模拟丢包和延迟波动
 
@@ -181,7 +211,7 @@ $ docker system info | sed -n '/Proxy/,+8p'
    - 最终输出值
    - 对应 trace / log 关联字段
 
-如果 UI 不支持直接按输出字段筛选，就必须提前准备一个等价的 fallback 路径，并在计划里写清楚。不能演示当天才发现这个过滤条件只能靠后端查库。
+如果 UI 不支持直接按输出字段筛选，就必须提前准备一个等价的命令行校验路径，并在计划里写清楚。不能演示当天才发现这个过滤条件只能靠后端查库。
 
 ### 5. Human Task 审批体验设计
 
@@ -262,7 +292,7 @@ Node review service 至少要提供以下能力：
 | 环境启动 | `docker compose ps` 显示服务逐步就绪，`verify` 输出当前等待项 | 首次启动前没有 workflow 数据，脚本提示先注册定义并启动 worker | 镜像拉取失败、Conductor/PG 未就绪、Grafana 数据源未连通时给出明确组件名 | 所有核心服务健康，给出访问入口列表 | 组件部分可用，例如 UI 能打开但 worker 未注册，必须明确提示“不可演示” |
 | 单次 workflow 运行 | 列表页能看到执行刚创建，detail 页能看到当前节点 | 执行列表为空时，UI 操作说明引导先运行单条 happy path | workflow 卡死、review 超时、worker 未消费任务时给出具体卡点 | `func1 -> review -> func2` 闭环完成并返回 `y` | workflow 已完成但日志或指标缺字段，判定为“功能成功，观测失败” |
 | 人工审批 | review 节点处于等待，review service 返回“已接单，处理中” | 没有待审批任务时，接口返回空集并提示当前无需操作 | approval API 调用失败、comment 回写失败、Conductor 鉴权失败时明确错误源 | approval/reject 生效，Conductor UI 状态更新，comment 可回查 | 审批完成但 Conductor UI 未及时刷新，需要说明刷新或轮询策略 |
-| 1000 并发与筛选 | 批量提交脚本输出进度，UI 按时间窗口能看到执行逐步增多 | 如果没有满足 `y > 10.1` 的结果，必须说明这是数据分布问题，不是筛选坏了 | UI 无法按结果字段过滤、查询超时、列表页卡死时要有 fallback | 成功筛出满足条件的执行集合，并能 drill-down 到样本详情 | 筛选命中但无法联动到日志 / trace 字段，视为“结果可见，解释不完整” |
+| 1000 并发与筛选 | 批量提交脚本输出进度，UI 按时间窗口能看到执行逐步增多 | 如果没有满足 `y > 10.1` 的结果，必须说明这是数据分布问题，不是筛选坏了 | UI 无法按结果字段过滤、查询超时、列表页卡死时要有备用命令行校验路径 | 成功筛出满足条件的执行集合，并能 drill-down 到样本详情 | 筛选命中但无法联动到日志 / trace 字段，视为“结果可见，解释不完整” |
 | 观测与关联 | dashboard 初始加载时能看到面板骨架和数据刷新提示 | 指标尚未采集到时，面板提示“等待首批样本”而不是空白 | otel collector、vector、victoria 任一链路断裂时能指向故障层 | 能按 `workflowId` / `trace_id` 查到 worker 与 review 的关联数据 | 只能看到 metrics 看不到 logs，或者反之，必须当场标明链路未完全打通 |
 
 ### 8. 用户旅程与情绪曲线
@@ -277,7 +307,7 @@ Node review service 至少要提供以下能力：
 | 4 | 查看 approval / reject 结果 | 建立对 Human Task 真实性的信任 | comment 回写规则、拒绝后回路重试说明 |
 | 5 | 跑 1000 条并做筛选 | 产生规模感，想知道系统有没有乱 | 批量脚本输出、列表过滤步骤、样本 drill-down |
 | 6 | 打开 Grafana / logs | 想知道这不是“看起来能跑” | dashboard、日志查询样例、关联字段说明 |
-| 7 | 故障演示或排障 | 希望快速定位，不想看漫无目的翻日志 | 常见故障入口、组件级错误提示、fallback 命令 |
+| 7 | 故障演示或排障 | 希望快速定位，不想看漫无目的翻日志 | 常见故障入口、组件级错误提示、备用校验命令 |
 
 ### 9. 反 AI Slop 约束
 
@@ -297,7 +327,7 @@ Node review service 至少要提供以下能力：
 
 - 所有演示步骤按桌面浏览器定义，优先在 `1280px+` 视口验证。
 - 每个浏览器步骤都要提供对应 URL，避免现场点丢了之后找不到入口。
-- 每个 UI 操作都应该有一个命令行或 API fallback，防止现场 UI 抽风时完全失去演示能力。
+- 每个 UI 操作都应该有一个命令行或 API 备用验证路径，防止现场 UI 抽风时完全失去演示能力。
 - Dashboard 和日志查询不能只靠颜色区分状态，必须有文本标签、数值或筛选字段。
 - 如果后续补最小审批页面，再补键盘可达、焦点顺序、最小点击区域要求；本轮先不扩 scope。
 
@@ -309,7 +339,7 @@ Node review service 至少要提供以下能力：
   - 复用其 `快速开始 / 验证 / 访问入口 / 手工验证` 结构
   - 复用其 Grafana 预置数据源、dashboard、构建代理与国内镜像策略
 - `reference/nomad-demo/README.md`
-  - 复用其 UI 入口说明和“如果 UI 不稳定，给出 API / SSH tunnel fallback”的写法
+  - 复用其 UI 入口说明和“如果 UI 不稳定，给出 API / SSH tunnel 备用路径”的写法
 - `.agents/skills/conductor/SKILL.md`
   - 复用其 workflow 定义、task definition、worker 注册与运行检查流程
 
@@ -327,7 +357,7 @@ Node review service 至少要提供以下能力：
 
 1. `审批入口采用 API-first`，不新增页面。
 2. `Conductor UI` 是工作流真相源，`Grafana` 是观测真相源，不新增统一总览页。
-3. `1000` 并发后的筛选演示以 `Conductor UI` 为主，必须准备一个命令行 fallback。
+3. `1000` 并发后的筛选演示以 `Conductor UI` 为主，必须准备一个命令行校验路径。
 4. 跨进程关联以 `workflowId + taskId + trace_id` 作为统一检索键。
 5. 所有 demo 步骤先走单条 happy path，再走批量路径，不允许一上来直接压 `1000` 条。
 
@@ -351,7 +381,7 @@ Node review service 至少要提供以下能力：
 - `Node.js review service + HUMAN task completion`
 - `TypeScript func2 worker`
 - `OTel metrics + Vector logs + Victoria + Grafana`
-- `CLI bootstrap / verify / bulk / fallback`
+- `CLI bootstrap / verify / bulk / search proof`
 
 移出本轮：
 
@@ -369,11 +399,11 @@ Node review service 至少要提供以下能力：
 - `reference/observability-platform-demo/verify.sh`
   - 已经给了“等待服务就绪 -> 造流量 -> 校验 metrics / logs / dashboard”的验收节奏。
 - `reference/nomad-demo/README.md`
-  - 已经给了 `Consul/Nomad` 的运行角色划分、job 渲染方式、以及“UI 如果不稳，要给 API / tunnel / CLI fallback”的写法。
+  - 已经给了 `Consul/Nomad` 的运行角色划分、job 渲染方式、以及“UI 如果不稳，要给 API / tunnel / CLI 备用路径”的写法。
 - `.agents/skills/conductor/SKILL.md`
   - 已经给了 workflow / task definition 注册和 worker 检查流程。
 
-这意味着本轮不应该把 `reference/nomad-demo` 只当成背景材料，而应该直接复用它对 `job spec / 服务注册 / CLI fallback` 的处理方式，把本仓库的业务组件迁移到 `Nomad job` 语义上。
+这意味着本轮不应该把 `reference/nomad-demo` 只当成背景材料，而应该直接复用它对 `job spec / 服务注册 / CLI 备用路径` 的处理方式，把本仓库的业务组件迁移到 `Nomad job` 语义上。
 
 #### 1.3 Search check 后的工程结论
 
@@ -383,7 +413,7 @@ Node review service 至少要提供以下能力：
 - `DO_WHILE + SET_VARIABLE` 正好能表达“反复 func1 -> review，直到 approve”为止的流程，不需要自定义调度逻辑。
 - OTel 对非 OTLP 文本 / JSON 日志要求把 `trace_id`、`span_id` 放在顶层字段，不能藏在 message 里。
 
-这几条意味着：本轮可以保持“纯 PostgreSQL”方向，但不能只配 `db.type=postgres` 就指望 UI 搜索自己工作，必须把 indexing 和 fallback 一并写进计划。
+这几条意味着：本轮可以保持“纯 PostgreSQL”方向，但不能只配 `db.type=postgres` 就指望 UI 搜索自己工作，必须把 indexing 和阈值核对路径一并写进计划。
 
 工程依据：
 
@@ -532,7 +562,7 @@ SWITCH last_decision
 - `trace_id`
 - `processed_at`
 
-没有 `GET /reviews/pending`，这个 API-first 审批入口实际上不可用，只是把 taskId 这个内部实现细节甩给了操作者。
+当前仓库已补齐 `GET /reviews/pending`，API-first 审批入口已可用，操作者可以先列出待审批 HUMAN task，再执行 approve / reject / auto-review。
 
 #### 2.4 搜索与筛选的正式方案
 
@@ -548,7 +578,7 @@ Phase A: 基础状态筛选
 Phase B: 结果值筛选 proof
   优先验证 UI free-text / search API 是否能稳定命中 output.y
 
-Phase C: fallback
+Phase C: 结果阈值核对
   scripts/search-output.sh
     -> 调 workflow search API 拉近时段执行
     -> 本地过滤 output.y > 10.1
@@ -560,10 +590,10 @@ Phase C: fallback
 - `docker compose` 配置里必须显式开启 PostgreSQL indexing。
 - `scripts/prove-search.sh` 要在实现最早阶段就验证 `output.y` 是否真能被 UI / API 稳定检索，而不是等 1000 并发后才发现这个字段查不出来。
 
-如果最终 UI 只能稳定按 `workflow name + status + time range` 收敛，而不能可靠做 `output.y > 10.1` 的数值筛选，那么 bulk demo 的口径必须调整成：
+如果最终 UI 只能稳定按 `workflow name + status + time range` 收敛，而不能可靠做 `output.y > 10.1` 的数值筛选，那么 bulk demo 的稳定口径应明确成：
 
 - `Conductor UI` 负责缩小样本集
-- `CLI fallback` 负责精确结果筛选
+- `scripts/search-output.sh` 负责阈值核对与样本导出
 
 这不是降级，这是把演示建立在可验证能力之上。
 
@@ -654,6 +684,11 @@ Phase C: fallback
 - 这三个入口都很 boring，没有额外脚手架债。
 - 这个 repo 是 compose-first demo，不值得为了测试再引入一层复杂 runner。
 
+说明：
+
+- 下面 4.1 / 4.2 是 planning 阶段的 gap 快照，用来记录当时为什么必须补测试。
+- 当前仓库里对应测试文件已经存在，当前真实入口以 4.3、`README.md` 和仓库实际文件为准。
+
 #### 4.1 CODE PATH COVERAGE
 
 ```text
@@ -700,7 +735,7 @@ CODE PATH COVERAGE
 [+] bulk / search
     ├── [GAP] 1000 workflow 提交汇总
     ├── [GAP] output.y > 10.1 查询 proof
-    └── [GAP] UI 不可用时 CLI fallback
+    └── [GAP] CLI 阈值核对路径
 ```
 
 #### 4.2 USER FLOW COVERAGE
@@ -719,24 +754,22 @@ USER FLOW COVERAGE
 [+] 批量路径
     ├── [GAP] [→E2E] 1000 条批量启动进度输出
     ├── [GAP] [→E2E] UI status/time range 收敛
-    └── [GAP] [→E2E] CLI fallback 输出样本 drill-down
+    └── [GAP] [→E2E] CLI 阈值核对输出样本 drill-down
 
 [+] 错误恢复
     ├── [GAP] review service 无待处理任务
     ├── [GAP] worker 未注册
     ├── [GAP] Grafana datasource 未就绪
-    ├── [GAP] search proof 失败时给出 fallback 提示
+    ├── [GAP] search proof 失败时给出阈值核对提示
     └── [GAP] Consul / Vault / Nomad 任一子系统不可用时给出明确故障面
 
 ─────────────────────────────────
-COVERAGE: 0/27 paths tested (0%)
-  Code paths: 0/19
-  User flows: 0/8
-GAPS: 27 条路径全部需要补测试
+PLANNING SNAPSHOT: 初稿时 0/27 条路径已有测试
+CURRENT REPO: 相关测试文件现已补齐，是否通过以本地实跑结果为准
 ─────────────────────────────────
 ```
 
-#### 4.3 必须写进计划的测试文件
+#### 4.3 当前仓库中的测试文件
 
 - `workers/func1-python/tests/test_func1_worker.py`
   - 断言首轮输入、reject comment 回流、非法输入报错。
@@ -753,7 +786,7 @@ GAPS: 27 条路径全部需要补测试
 - `tests/e2e/reject-loop.sh`
   - 验证 reject -> func1 回路 -> 最终 approve。
 - `tests/e2e/bulk-search.sh`
-  - 验证批量启动、UI/API 搜索、CLI fallback。
+  - 验证批量启动、UI/API 搜索、CLI 阈值核对。
 - `tests/e2e/observability.sh`
   - 验证 Grafana datasource、metrics、logs、trace fields。
 - `tests/e2e/failure-surface.sh`
@@ -772,7 +805,7 @@ GAPS: 27 条路径全部需要补测试
 | Consul 服务发现 | 服务没注册或 DNS 解析不到，worker/review 找不到 conductor | 计划要求覆盖 | `verify` 必须检查 service catalog 与 DNS 解析 | 否则近似静默失败 | 必做 |
 | Vault 密钥分发 | template 没渲染或 secret lease 失效，job 启动后拿不到凭据 | 计划要求覆盖 | `verify` 必须检查 secret file / env 注入结果 | 明确可见 | 必做 |
 | 宿主机端口暴露 | 内部服务被直接暴露，demo 与真实网络边界不一致 | 计划要求覆盖 | compose / nomad 配置里默认禁掉 | 前期不明显，后期演示口径失真 | 必做 |
-| bulk 搜索 | `output.y` 无法被 UI / API 稳定检索 | 计划要求覆盖 | `prove-search.sh + search-output.sh` fallback | 可见，但需提前化解 | 必做 |
+| bulk 搜索 | `output.y` 无法被 UI / API 稳定检索 | 计划要求覆盖 | `prove-search.sh + search-output.sh` 阈值核对 | 可见，但需提前化解 | 必做 |
 | trace 关联 | HUMAN 边界丢失 trace context，logs 断链 | 计划要求覆盖 | 明确 `traceparent` 传递与顶层日志字段 | 否则是静默失败 | 必做 |
 | metrics 设计 | 把 `workflowId` 当 label，Victoria / Grafana 基数爆炸 | 计划要求覆盖 | 计划中禁止高基数 label | 前期不明显，后期慢 | 必做 |
 
@@ -847,7 +880,7 @@ Conductor 官方文档已经给了 `concurrentExecLimit`、`responseTimeoutSecon
 | 基础设施编排 | `config/`, `docker-compose.yml`, `jobs/`, `scripts/` | — |
 | Workflow 与 review 契约 | `workflows/`, `taskdefs/`, `services/review-service/` | 基础设施编排 |
 | Worker 实现 | `workers/func1-python/`, `workers/func2-ts/` | Workflow 与 review 契约, 基础设施编排 |
-| 验收与 bulk/fallback | `tests/e2e/`, `scripts/` | 基础设施编排, Workflow 与 review 契约, Worker 实现 |
+| 验收与 bulk/搜索校验 | `tests/e2e/`, `scripts/` | 基础设施编排, Workflow 与 review 契约, Worker 实现 |
 
 并行 lane：
 
