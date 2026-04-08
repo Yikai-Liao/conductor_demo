@@ -252,6 +252,44 @@ wait_for_pending_review() {
   done
 }
 
+format_initial_x_token() {
+  local x="$1"
+  printf '%s' "${x}" | tr -c '[:alnum:]' '_'
+}
+
+initial_x_tag() {
+  local x="$1"
+  printf 'initial_x_%s' "$(format_initial_x_token "${x}")"
+}
+
+build_default_correlation_id() {
+  local scope="$1"
+  local x="$2"
+  local suffix="$3"
+  printf '%s-x%s-%s' "${scope}" "$(format_initial_x_token "${x}")" "${suffix}"
+}
+
+pick_default_initial_x() {
+  local state_dir="${ROOT_DIR}/runtime/cli-state"
+  local state_file="${state_dir}/last-initial-x"
+  local last_x=""
+  local next_x="1"
+
+  ensure_runtime_dirs
+  mkdir -p "${state_dir}"
+
+  if [[ -f "${state_file}" ]]; then
+    last_x="$(tr -d '[:space:]' < "${state_file}")"
+  fi
+
+  if [[ "${last_x}" == "1" ]]; then
+    next_x="2"
+  fi
+
+  printf '%s\n' "${next_x}" > "${state_file}"
+  printf '%s\n' "${next_x}"
+}
+
 start_workflow_payload() {
   local x="$1"
   local correlation_id="$2"
@@ -259,21 +297,31 @@ start_workflow_payload() {
   local review_mode="$4"
   local bulk_seed="$5"
   local approval_threshold="$6"
+  local initial_x_tag_value
+
+  initial_x_tag_value="$(initial_x_tag "${x}")"
 
   jq -nc \
     --arg correlation_id "${correlation_id}" \
+    --arg initial_x_tag "${initial_x_tag_value}" \
     --arg review_mode "${review_mode}" \
     --arg bulk_seed "${bulk_seed}" \
     --argjson x "${x}" \
     --argjson auto_review "${auto_review}" \
     --argjson approval_threshold "${approval_threshold}" \
     '{
-      x: $x,
-      correlation_id: $correlation_id,
-      auto_review: $auto_review,
-      review_mode: $review_mode,
-      bulk_seed: $bulk_seed,
-      approval_threshold: $approval_threshold
+      name: "human_review_demo",
+      version: 1,
+      correlationId: $correlation_id,
+      input: {
+        x: $x,
+        correlation_id: $correlation_id,
+        initial_x_tag: $initial_x_tag,
+        auto_review: $auto_review,
+        review_mode: $review_mode,
+        bulk_seed: $bulk_seed,
+        approval_threshold: $approval_threshold
+      }
     }'
 }
 
@@ -291,7 +339,7 @@ start_workflow() {
     -X POST \
     -H "Content-Type: application/json" \
     -d "${payload}" \
-    "${CONDUCTOR_SERVER_URL}/workflow/human_review_demo" | tr -d '"'
+    "${CONDUCTOR_SERVER_URL}/workflow" | tr -d '"'
 }
 
 count_terminal_workflows() {

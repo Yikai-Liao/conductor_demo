@@ -37,6 +37,13 @@ submit_job() {
   echo "Nomad job 已提交: ${name}"
 }
 
+restart_job() {
+  local name="$1"
+
+  nomad job restart -yes -on-error=fail "${name}" >/dev/null
+  echo "Nomad job 已重启: ${name}"
+}
+
 wait_for_http "Nomad API" "${NOMAD_ADDR}/v1/status/leader"
 
 submit_job "conductor"
@@ -44,11 +51,19 @@ submit_job "conductor-ui"
 
 wait_for_consul_service "conductor-api" >/dev/null
 wait_for_consul_service "conductor-ui" >/dev/null
+restart_job "conductor-ui"
+wait_for_consul_service "conductor-ui" >/dev/null
 
 submit_job "func1-python"
 submit_job "review-service"
 submit_job "func2-ts"
 
+wait_for_consul_service "func1-python" >/dev/null
+wait_for_consul_service "review-service" >/dev/null
+wait_for_consul_service "func2-ts" >/dev/null
+restart_job "func1-python"
+restart_job "review-service"
+restart_job "func2-ts"
 wait_for_consul_service "func1-python" >/dev/null
 wait_for_consul_service "review-service" >/dev/null
 wait_for_consul_service "func2-ts" >/dev/null

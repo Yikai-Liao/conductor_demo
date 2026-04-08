@@ -15,12 +15,17 @@
     "comments",
     "attempt",
     "correlation_id",
+    "initial_x",
+    "initial_x_tag",
     "traceparent"
   ],
   "outputKeys": [
     "candidate_x",
     "attempt",
     "comment_in",
+    "correlation_id",
+    "initial_x",
+    "initial_x_tag",
     "trace_id",
     "span_id",
     "trace_flags",

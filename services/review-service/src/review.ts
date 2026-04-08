@@ -8,7 +8,10 @@ export const REVIEW_REJECTED = "REJECTED_WITH_COMMENT";
 export interface PendingReviewItem {
   attempt: number;
   candidate_x: number;
+  correlation_id?: string;
   created_at: string;
+  initial_x?: number;
+  initial_x_tag?: string;
   taskId: string;
   taskRefName: string;
   trace_id?: string;
@@ -42,6 +45,11 @@ function toNumber(value: unknown, fieldName: string): number {
   return numeric;
 }
 
+function toOptionalNumber(value: unknown): number | undefined {
+  const numeric = Number(value);
+  return Number.isNaN(numeric) ? undefined : Number(numeric.toFixed(2));
+}
+
 function toIsoDate(epochMillis: number | undefined): string {
   if (!epochMillis) {
     return new Date(0).toISOString();
@@ -69,7 +77,10 @@ function normalizeReviewTask(task: ConductorTask): PendingReviewItem | null {
   return {
     attempt,
     candidate_x: Number(candidateX.toFixed(2)),
+    correlation_id: typeof input.correlation_id === "string" ? input.correlation_id : undefined,
     created_at: toIsoDate(task.startTime ?? task.updateTime),
+    initial_x: toOptionalNumber(input.initial_x),
+    initial_x_tag: typeof input.initial_x_tag === "string" ? input.initial_x_tag : undefined,
     taskId: task.taskId,
     taskRefName: task.referenceTaskName ?? "review_gate",
     trace_id: typeof input.trace_id === "string" ? input.trace_id : undefined,

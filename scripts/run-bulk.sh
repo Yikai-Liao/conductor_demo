@@ -44,10 +44,13 @@ active=0
 
 submit_one() {
   local index="$1"
-  local x_value=$(( (index % 4) + 1 ))
+  local x_value=$(( ((index - 1) % 2) + 1 ))
+  local correlation_id
+
+  correlation_id="$(build_default_correlation_id "${run_id}" "${x_value}" "${index}")"
   start_workflow \
     "${x_value}" \
-    "${run_id}-${index}" \
+    "${correlation_id}" \
     "${auto_review}" \
     "auto" \
     "${run_id}" \

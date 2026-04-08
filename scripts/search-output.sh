@@ -50,7 +50,11 @@ echo "${response}" | jq --argjson threshold "${threshold}" '
     | {
         workflowId: ($workflow.workflowId // $workflow.workflowId),
         status: $workflow.status,
+        correlation_id: ($workflow.correlationId // $output.correlation_id // ""),
+        initial_x: ($output.initial_x // null),
+        initial_x_tag: ($output.initial_x_tag // ""),
         y: $y,
+        y_tag: ($output.y_tag // ""),
         comment: ($output.comment // ""),
         trace_id: ($output.trace_id // ""),
         attempts: ($output.attempts // 0)

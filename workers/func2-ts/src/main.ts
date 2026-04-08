@@ -1,8 +1,15 @@
+import {
+  OrkesClients,
+  TaskHandler,
+  getTaskContext,
+  worker,
+  type Task,
+  type TaskResult,
+} from "@io-orkes/conductor-javascript";
 import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from "prom-client";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
-import { ConductorClient, type ConductorTask } from "./conductor.js";
-import { computeFunc2 } from "./logic.js";
+import { buildYTag, computeFunc2 } from "./logic.js";
 import { currentTraceFields, currentTraceparent, setupTelemetry, withTaskSpan } from "./telemetry.js";
 
 const SERVICE_NAME = process.env.OTEL_SERVICE_NAME ?? "func2-ts";
@@ -23,24 +30,20 @@ const taskDuration = meter.createHistogram("conductor_demo_task_duration_ms", {
   description: "Task execution duration in milliseconds",
   unit: "ms",
 });
+const finalOutputs = meter.createCounter("conductor_demo_final_outputs_total", {
+  description: "Final func2 outputs grouped by initial cohort and y tag",
+});
+const finalYValue = meter.createHistogram("conductor_demo_final_y", {
+  description: "Final y values emitted by func2",
+  unit: "1",
+});
 
 const promRegistry = new Registry();
 collectDefaultMetrics({ register: promRegistry });
 
-const pollCounter = new Counter({
-  name: "conductor_demo_ts_polls_total",
-  help: "Poll attempts made by the TypeScript worker",
-  registers: [promRegistry],
-});
 const failureCounter = new Counter({
   name: "conductor_demo_ts_failures_total",
   help: "Failures observed by the TypeScript worker",
-  registers: [promRegistry],
-});
-const taskRunsProm = new Counter({
-  name: "conductor_demo_task_runs_total",
-  help: "Total completed Conductor demo task executions",
-  labelNames: ["service", "result"] as const,
   registers: [promRegistry],
 });
 const inflightGauge = new Gauge({
@@ -54,13 +57,14 @@ const durationHistogram = new Histogram({
   registers: [promRegistry],
 });
 
-const client = new ConductorClient(CONDUCTOR_SERVER_URL);
+let handler: TaskHandler | null = null;
 let isStopping = false;
+let startupError: string | null = null;
 
 function logEvent(
   level: "ERROR" | "INFO",
   message: string,
-  fields: Record<string, number | string | undefined>,
+  fields: Record<string, unknown>,
 ): void {
   process.stdout.write(
     `${JSON.stringify({
@@ -74,10 +78,28 @@ function logEvent(
   );
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
+function toOptionalNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === "") {
+    return undefined;
+  }
+
+  const numeric = Number(value);
+  return Number.isNaN(numeric) ? undefined : Number(numeric.toFixed(2));
+}
+
+function requireTaskIdentity(task: Task): { taskId: string; workflowId: string } {
+  if (!task.taskId) {
+    throw new Error("taskId is required");
+  }
+
+  if (!task.workflowInstanceId) {
+    throw new Error("workflowInstanceId is required");
+  }
+
+  return {
+    taskId: task.taskId,
+    workflowId: task.workflowInstanceId,
+  };
 }
 
 function writeJson(response: ServerResponse, statusCode: number, payload: Record<string, unknown>): void {
@@ -97,8 +119,14 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   }
 
   if (path === "/healthz") {
-    writeJson(response, 200, {
-      ok: true,
+    const running = handler?.running ?? false;
+    const runningWorkers = handler?.runningWorkerCount ?? 0;
+    const healthy = startupError === null && running && runningWorkers > 0;
+    writeJson(response, healthy ? 200 : 503, {
+      error: startupError,
+      ok: healthy,
+      running,
+      runningWorkers,
       service: SERVICE_NAME,
       taskType: TASK_TYPE,
       workerId: WORKER_ID,
@@ -119,55 +147,59 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
   writeJson(response, 404, { ok: false, service: SERVICE_NAME, path });
 }
 
-function buildOutput(task: ConductorTask) {
+function buildOutput(task: Task) {
   const input = task.inputData ?? {};
   const result = computeFunc2({ x: input.x });
+  const { taskId, workflowId } = requireTaskIdentity(task);
 
   return {
     ...result,
     attempt: Number(input.attempt ?? 0),
     comment: typeof input.comment === "string" ? input.comment : "",
     correlation_id: typeof input.correlation_id === "string" ? input.correlation_id : "",
-    taskId: task.taskId,
+    initial_x: toOptionalNumber(input.initial_x),
+    initial_x_tag: typeof input.initial_x_tag === "string" ? input.initial_x_tag : "",
+    taskId,
     traceparent: currentTraceparent(),
-    workflowId: task.workflowInstanceId,
+    workflowId,
+    y_tag: buildYTag(result.y),
     ...currentTraceFields(),
   };
 }
 
-async function completeTask(task: ConductorTask): Promise<void> {
+async function completeTask(task: Task): Promise<TaskResult> {
   const input = task.inputData ?? {};
   const startedAt = performance.now();
+  const ctx = getTaskContext();
+  const { taskId, workflowId } = requireTaskIdentity(task);
 
-  await withTaskSpan(
+  return withTaskSpan(
     tracer,
     "func2_ts.execute",
     input.traceparent,
     {
-      "conductor.task.id": task.taskId,
+      "conductor.task.id": taskId,
       "conductor.task.type": TASK_TYPE,
-      "conductor.workflow.id": task.workflowInstanceId,
+      "conductor.workflow.id": workflowId,
     },
     async () => {
       inflightGauge.inc();
+      ctx?.addLog(`func2 task started: taskId=${taskId}`);
       logEvent("INFO", "func2 task started", {
-        attempt: String(input.attempt ?? ""),
-        taskId: task.taskId,
+        attempt: Number(input.attempt ?? 0),
+        correlation_id: typeof input.correlation_id === "string" ? input.correlation_id : undefined,
+        initial_x: toOptionalNumber(input.initial_x),
+        initial_x_tag: typeof input.initial_x_tag === "string" ? input.initial_x_tag : undefined,
+        taskId,
         taskType: TASK_TYPE,
-        workflowId: task.workflowInstanceId,
-        x: String(input.x ?? ""),
+        workflowId,
+        x: toOptionalNumber(input.x),
       });
 
       try {
         const outputData = buildOutput(task);
-        await client.updateTask({
-          taskId: task.taskId,
-          workflowInstanceId: task.workflowInstanceId,
-          status: "COMPLETED",
-          outputData,
-        });
-
         const durationMs = Number((performance.now() - startedAt).toFixed(2));
+
         taskRuns.add(1, {
           result: "completed",
           service: SERVICE_NAME,
@@ -178,38 +210,64 @@ async function completeTask(task: ConductorTask): Promise<void> {
           service: SERVICE_NAME,
           task_type: TASK_TYPE,
         });
-        durationHistogram.observe(durationMs / 1000);
-        taskRunsProm.inc({
+        finalOutputs.add(1, {
+          initial_x_tag: outputData.initial_x_tag || "initial_x_unknown",
           service: SERVICE_NAME,
-          result: "completed",
+          y_tag: outputData.y_tag,
         });
+        finalYValue.record(outputData.y, {
+          initial_x_tag: outputData.initial_x_tag || "initial_x_unknown",
+          service: SERVICE_NAME,
+          y_tag: outputData.y_tag,
+        });
+        durationHistogram.observe(durationMs / 1000);
+        ctx?.addLog(`func2 completed: y=${outputData.y}`);
         logEvent("INFO", "func2 task completed", {
-          duration_ms: durationMs.toString(),
-          taskId: task.taskId,
+          correlation_id: outputData.correlation_id,
+          duration_ms: durationMs,
+          initial_x: outputData.initial_x,
+          initial_x_tag: outputData.initial_x_tag,
+          taskId,
           taskType: TASK_TYPE,
-          workflowId: task.workflowInstanceId,
-          y: String(outputData.y),
+          workflowId,
+          y: outputData.y,
+          y_tag: outputData.y_tag,
         });
+
+        return {
+          outputData,
+          taskId,
+          status: "COMPLETED",
+          workflowInstanceId: workflowId,
+        };
       } catch (error) {
         failureCounter.inc();
         const reason = error instanceof Error ? error.message : String(error);
-        await client.updateTask({
-          taskId: task.taskId,
-          workflowInstanceId: task.workflowInstanceId,
-          status: "FAILED",
-          reasonForIncompletion: reason,
+        ctx?.addLog(`func2 failed: ${reason}`);
+        logEvent("ERROR", "func2 task failed", {
+          correlation_id: typeof input.correlation_id === "string" ? input.correlation_id : undefined,
+          error: reason,
+          initial_x: toOptionalNumber(input.initial_x),
+          initial_x_tag: typeof input.initial_x_tag === "string" ? input.initial_x_tag : undefined,
+          taskId,
+          taskType: TASK_TYPE,
+          workflowId,
+        });
+
+        return {
           outputData: {
-            taskId: task.taskId,
-            workflowId: task.workflowInstanceId,
+            correlation_id: typeof input.correlation_id === "string" ? input.correlation_id : "",
+            initial_x: toOptionalNumber(input.initial_x),
+            initial_x_tag: typeof input.initial_x_tag === "string" ? input.initial_x_tag : "",
+            taskId,
+            workflowId,
             ...currentTraceFields(),
           },
-        });
-        logEvent("ERROR", "func2 task failed", {
-          error: reason,
-          taskId: task.taskId,
-          taskType: TASK_TYPE,
-          workflowId: task.workflowInstanceId,
-        });
+          reasonForIncompletion: reason,
+          taskId,
+          status: "FAILED",
+          workflowInstanceId: workflowId,
+        };
       } finally {
         inflightGauge.dec();
       }
@@ -217,25 +275,34 @@ async function completeTask(task: ConductorTask): Promise<void> {
   );
 }
 
-async function pollLoop(): Promise<void> {
-  while (!isStopping) {
-    try {
-      pollCounter.inc();
-      const task = await client.pollTask(TASK_TYPE, WORKER_ID);
-      if (!task?.taskId) {
-        await sleep(IDLE_SLEEP_MS);
-        continue;
-      }
-      await completeTask(task);
-    } catch (error) {
-      failureCounter.inc();
-      logEvent("ERROR", "poll loop error", {
-        error: error instanceof Error ? error.message : String(error),
-        taskType: TASK_TYPE,
-      });
-      await sleep(IDLE_SLEEP_MS);
-    }
+class Func2Workers {
+  @worker({
+    concurrency: WORKER_CONCURRENCY,
+    pollInterval: IDLE_SLEEP_MS,
+    taskDefName: TASK_TYPE,
+    workerId: WORKER_ID,
+  })
+  async execute(task: Task): Promise<TaskResult> {
+    return completeTask(task);
   }
+}
+
+void new Func2Workers();
+
+async function startWorkerHandler(): Promise<void> {
+  const clients = await OrkesClients.from({ serverUrl: CONDUCTOR_SERVER_URL });
+  handler = new TaskHandler({
+    client: clients.getClient(),
+    scanForDecorated: true,
+  });
+  await handler.startWorkers();
+  startupError = null;
+  logEvent("INFO", "func2-ts worker started", {
+    conductor_url: CONDUCTOR_SERVER_URL,
+    port: PORT,
+    running_workers: handler.runningWorkerCount,
+    workerId: WORKER_ID,
+  });
 }
 
 const server = createServer((request, response) => {
@@ -249,24 +316,40 @@ const server = createServer((request, response) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  logEvent("INFO", "func2-ts worker started", {
-    conductor_url: CONDUCTOR_SERVER_URL,
-    port: String(PORT),
-    workerId: WORKER_ID,
+  void startWorkerHandler().catch((error) => {
+    startupError = error instanceof Error ? error.message : String(error);
+    failureCounter.inc();
+    logEvent("ERROR", "func2-ts worker failed to start", {
+      error: startupError,
+      workerId: WORKER_ID,
+    });
   });
 });
 
-for (let index = 0; index < WORKER_CONCURRENCY; index += 1) {
-  void pollLoop();
-}
+async function shutdown(): Promise<void> {
+  if (isStopping) {
+    return;
+  }
 
-function shutdown(): void {
   isStopping = true;
+  try {
+    await handler?.stopWorkers();
+  } catch (error) {
+    logEvent("ERROR", "func2-ts worker stop failed", {
+      error: error instanceof Error ? error.message : String(error),
+      workerId: WORKER_ID,
+    });
+  }
+
   server.close(() => {
     logEvent("INFO", "func2-ts worker stopped", { workerId: WORKER_ID });
     process.exit(0);
   });
 }
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.on("SIGINT", () => {
+  void shutdown();
+});
+process.on("SIGTERM", () => {
+  void shutdown();
+});

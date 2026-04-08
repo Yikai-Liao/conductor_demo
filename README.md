@@ -97,6 +97,17 @@ curl -s "http://localhost:18080/api/workflow/${workflow_id}" | jq '{workflowId,s
 ./scripts/run-one.sh --x 1 --auto-review --wait
 ```
 
+如果不显式传 `--x`，默认会在 `1` / `2` 之间交替选取初始值，并把这个值编码进 `correlation_id`：
+
+```json
+{
+  "workflowId": "...",
+  "x": 1,
+  "correlation_id": "run-one-x1-...",
+  "review_mode": "auto"
+}
+```
+
 ## Workflow 编排
 
 推荐使用 Orkes Developer Edition 的 workflow editor 做 definition 编排和结构检查：
@@ -150,6 +161,9 @@ curl -s "http://localhost:18080/api/workflow/${workflow_id}" | jq '{workflowId,s
 - `comment`
 - `delay_ms`
 - `next_x`
+- `correlation_id`
+- `initial_x`
+- `initial_x_tag`
 - `trace_id`
 - `processed_at`
 
@@ -167,6 +181,13 @@ curl -s "http://localhost:18080/api/workflow/${workflow_id}" | jq '{workflowId,s
 2. 按 `workflowType=human_review_demo`、`status`、时间范围收敛列表
 3. 点开 execution detail，查看 `func1_python -> review_gate -> func2_ts` 的执行顺序
 4. 在 output 里查看 `decision`、`comment`、`final_x`、`y`
+
+当前 workflow 最终 output 还会带上这些辅助检索字段：
+
+- `correlation_id`
+- `initial_x`
+- `initial_x_tag`
+- `y_tag`
 
 批量演示常用命令：
 
@@ -197,6 +218,34 @@ Grafana 默认账号密码：
 - `workflowId`
 - `taskId`
 - `trace_id`
+- `correlation_id`
+- `initial_x_tag`
+- `y_tag`
+
+当前链路里有两个不同用途的数据面：
+
+- `VictoriaLogs`：保留逐条日志事件，适合按 `workflowId`、`trace_id`、`correlation_id`、`y` 直接检索具体 workflow。
+- `VictoriaMetrics`：保留聚合后的指标时间序列，适合看趋势、分组和 cohort，不适合反查一批具体 workflow id。
+
+Grafana Explore 里常用的 `VictoriaLogs` 查询示例：
+
+```text
+workflowId:97c44341-fe32-4a9d-becb-0e8cd4e5584b
+service:func2-ts message:"func2 task completed" y:<10.4
+service:func2-ts message:"func2 task completed" y:<10.4 | stats by (workflowId) count()
+service:func2-ts message:"func2 task completed" y:>=10.5 | stats by (workflowId) count()
+```
+
+也就是说，`y < 10.4`、`y < 10.3` 这类自由数值筛选，放在 `VictoriaLogs` / Grafana Explore 里是能直接做的，不必依赖 `Conductor` 的 runtime variable tag。
+
+Grafana dashboard 上的指标查询建议看这些维度：
+
+```promql
+sum by (exported_service, initial_x_tag, y_tag) (conductor_demo_final_outputs_total)
+sum by (exported_service, initial_x_tag, y_tag) (conductor_demo_final_y_count)
+```
+
+注意这里的 `exported_service` 是实际业务服务名；`service` 标签会被 scrape target 占用，所以 dashboard 里应优先按 `exported_service` 分组。
 
 常用验收命令：
 

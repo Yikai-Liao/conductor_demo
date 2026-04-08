@@ -8,10 +8,14 @@ import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from conductor.client.configuration.configuration import Configuration
+from conductor.client.http.models.task import Task
+from conductor.client.http.models.task_result import TaskResult
+from conductor.client.orkes_clients import OrkesClients
+from conductor.client.task_client import TaskClient
 from opentelemetry.trace import SpanKind, Status, StatusCode, get_current_span
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, REGISTRY, generate_latest
 
-from .conductor_client import ConductorClient
 from .logic import compute_candidate_x
 from .telemetry import setup_telemetry
 
@@ -39,18 +43,15 @@ task_duration = meter.create_histogram(
 poll_counter = Counter("conductor_demo_python_polls_total", "Poll attempts made by the Python worker")
 failure_counter = Counter("conductor_demo_python_failures_total", "Failures observed by the Python worker")
 inflight_gauge = Gauge("conductor_demo_python_inflight", "In-flight tasks in the Python worker")
-task_runs_prom = Counter(
-    "conductor_demo_task_runs_total",
-    "Total completed Conductor demo task executions",
-    labelnames=("service", "result"),
-)
 duration_histogram = Histogram(
     "conductor_demo_python_task_duration_seconds",
     "Task processing time in seconds for the Python worker",
 )
 
 stop_event = threading.Event()
-client = ConductorClient(CONDUCTOR_SERVER_URL)
+client: TaskClient = OrkesClients(
+    configuration=Configuration(server_api_url=CONDUCTOR_SERVER_URL),
+).get_task_client()
 
 
 def utc_timestamp() -> str:
@@ -85,6 +86,27 @@ def log_event(level: str, message: str, **fields: object) -> None:
         **fields,
     }
     print(json.dumps(entry, ensure_ascii=False), flush=True)
+
+
+def as_string(value: object) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def build_task_result(
+    task: Task,
+    status: str,
+    output_data: dict[str, object],
+    reason: str | None = None,
+) -> TaskResult:
+    result = TaskResult()
+    result.task_id = task.task_id
+    result.workflow_instance_id = task.workflow_instance_id
+    result.worker_id = WORKER_ID
+    result.status = status
+    result.output_data = output_data
+    if reason is not None:
+        result.reason_for_incompletion = reason
+    return result
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -124,10 +146,10 @@ class Handler(BaseHTTPRequestHandler):
         return
 
 
-def build_completion_output(task: dict) -> dict[str, object]:
-    workflow_id = task["workflowInstanceId"]
-    task_id = task["taskId"]
-    input_data = task.get("inputData") or {}
+def build_completion_output(task: Task) -> dict[str, object]:
+    workflow_id = task.workflow_instance_id
+    task_id = task.task_id
+    input_data = task.input_data or {}
 
     result = compute_candidate_x(
         current_x=input_data.get("current_x"),
@@ -138,16 +160,19 @@ def build_completion_output(task: dict) -> dict[str, object]:
     return {
         **result,
         **current_trace_fields(),
+        "correlation_id": as_string(input_data.get("correlation_id")),
+        "initial_x": input_data.get("initial_x"),
+        "initial_x_tag": as_string(input_data.get("initial_x_tag")),
         "taskId": task_id,
         "traceparent": current_traceparent(),
         "workflowId": workflow_id,
     }
 
 
-def complete_task(task: dict) -> None:
-    task_id = task["taskId"]
-    workflow_id = task["workflowInstanceId"]
-    input_data = task.get("inputData") or {}
+def complete_task(task: Task) -> None:
+    task_id = task.task_id
+    workflow_id = task.workflow_instance_id
+    input_data = task.input_data or {}
     traceparent = input_data.get("traceparent")
     parent_context = propagator.extract({"traceparent": traceparent}) if traceparent else None
     started = time.perf_counter()
@@ -168,6 +193,9 @@ def complete_task(task: dict) -> None:
             "func1 task started",
             attempt=input_data.get("attempt"),
             comment_in=input_data.get("comments", ""),
+            correlation_id=as_string(input_data.get("correlation_id")),
+            initial_x=input_data.get("initial_x"),
+            initial_x_tag=as_string(input_data.get("initial_x_tag")),
             taskId=task_id,
             taskType=TASK_TYPE,
             workflowId=workflow_id,
@@ -175,14 +203,8 @@ def complete_task(task: dict) -> None:
 
         try:
             output_data = build_completion_output(task)
-            client.update_task(
-                {
-                    "taskId": task_id,
-                    "workflowInstanceId": workflow_id,
-                    "status": "COMPLETED",
-                    "outputData": output_data,
-                }
-            )
+            client.update_task(build_task_result(task, "COMPLETED", output_data))
+
             elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
             task_runs.add(
                 1,
@@ -201,13 +223,15 @@ def complete_task(task: dict) -> None:
                 },
             )
             duration_histogram.observe(elapsed_ms / 1000)
-            task_runs_prom.labels(service=SERVICE_NAME, result="completed").inc()
             log_event(
                 "INFO",
                 "func1 task completed",
                 candidate_x=output_data["candidate_x"],
                 comment_in=output_data["comment_in"],
+                correlation_id=output_data["correlation_id"],
                 duration_ms=elapsed_ms,
+                initial_x=output_data["initial_x"],
+                initial_x_tag=output_data["initial_x_tag"],
                 taskId=task_id,
                 taskType=TASK_TYPE,
                 workflowId=workflow_id,
@@ -217,22 +241,27 @@ def complete_task(task: dict) -> None:
             span.record_exception(exc)
             span.set_status(Status(status_code=StatusCode.ERROR, description=str(exc)))
             client.update_task(
-                {
-                    "taskId": task_id,
-                    "workflowInstanceId": workflow_id,
-                    "status": "FAILED",
-                    "reasonForIncompletion": str(exc),
-                    "outputData": {
+                build_task_result(
+                    task,
+                    "FAILED",
+                    {
                         **current_trace_fields(),
+                        "correlation_id": as_string(input_data.get("correlation_id")),
+                        "initial_x": input_data.get("initial_x"),
+                        "initial_x_tag": as_string(input_data.get("initial_x_tag")),
                         "taskId": task_id,
                         "workflowId": workflow_id,
                     },
-                }
+                    str(exc),
+                )
             )
             log_event(
                 "ERROR",
                 "func1 task failed",
+                correlation_id=as_string(input_data.get("correlation_id")),
                 error=str(exc),
+                initial_x=input_data.get("initial_x"),
+                initial_x_tag=as_string(input_data.get("initial_x_tag")),
                 taskId=task_id,
                 taskType=TASK_TYPE,
                 workflowId=workflow_id,
@@ -246,7 +275,7 @@ def poll_loop() -> None:
         try:
             poll_counter.inc()
             task = client.poll_task(TASK_TYPE, WORKER_ID)
-            if not task or not task.get("taskId"):
+            if not task or not task.task_id:
                 time.sleep(IDLE_SLEEP_SECONDS)
                 continue
             complete_task(task)

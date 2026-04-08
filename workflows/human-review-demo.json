@@ -8,13 +8,17 @@
   "timeoutPolicy": "ALERT_ONLY",
   "timeoutSeconds": 0,
   "outputParameters": {
-    "decision": "${workflow.variables.last_decision}",
-    "comment": "${workflow.variables.last_comment}",
-    "final_x": "${workflow.variables.current_x}",
     "attempts": "${review_loop.output.iteration}",
+    "comment": "${workflow.variables.last_comment}",
+    "correlation_id": "${workflow.variables.correlation_id}",
+    "decision": "${workflow.variables.last_decision}",
+    "final_x": "${workflow.variables.current_x}",
+    "initial_x": "${workflow.variables.initial_x}",
+    "initial_x_tag": "${workflow.variables.initial_x_tag}",
+    "trace_id": "${workflow.variables.trace_id}",
     "traceparent": "${workflow.variables.traceparent}",
-    "trace_id": "${func2_ts.output.trace_id}",
-    "y": "${func2_ts.output.y}"
+    "y": "${workflow.variables.y}",
+    "y_tag": "${workflow.variables.y_tag}"
   },
   "tasks": [
     {
@@ -27,11 +31,16 @@
         "bulk_seed": "${workflow.input.bulk_seed}",
         "correlation_id": "${workflow.input.correlation_id}",
         "current_x": "${workflow.input.x}",
+        "initial_x": "${workflow.input.x}",
+        "initial_x_tag": "${workflow.input.initial_x_tag}",
         "last_comment": "",
         "last_decision": "PENDING_REVIEW",
         "max_attempts": 8,
         "review_mode": "${workflow.input.review_mode}",
-        "traceparent": "${workflow.input.traceparent}"
+        "trace_id": "",
+        "traceparent": "${workflow.input.traceparent}",
+        "y": null,
+        "y_tag": ""
       }
     },
     {
@@ -53,6 +62,8 @@
             "comments": "${workflow.variables.last_comment}",
             "correlation_id": "${workflow.variables.correlation_id}",
             "current_x": "${workflow.variables.current_x}",
+            "initial_x": "${workflow.variables.initial_x}",
+            "initial_x_tag": "${workflow.variables.initial_x_tag}",
             "traceparent": "${workflow.variables.traceparent}"
           }
         },
@@ -67,6 +78,8 @@
             "candidate_x": "${func1_python.output.candidate_x}",
             "comment_in": "${func1_python.output.comment_in}",
             "correlation_id": "${workflow.variables.correlation_id}",
+            "initial_x": "${workflow.variables.initial_x}",
+            "initial_x_tag": "${workflow.variables.initial_x_tag}",
             "review_mode": "${workflow.variables.review_mode}",
             "traceparent": "${func1_python.output.traceparent}"
           }
@@ -104,8 +117,21 @@
               "attempt": "${review_loop.output.iteration}",
               "comment": "${workflow.variables.last_comment}",
               "correlation_id": "${workflow.variables.correlation_id}",
+              "initial_x": "${workflow.variables.initial_x}",
+              "initial_x_tag": "${workflow.variables.initial_x_tag}",
               "traceparent": "${workflow.variables.traceparent}",
               "x": "${workflow.variables.current_x}"
+            }
+          },
+          {
+            "name": "capture_final_state",
+            "taskReferenceName": "capture_final_state",
+            "type": "SET_VARIABLE",
+            "inputParameters": {
+              "trace_id": "${func2_ts.output.trace_id}",
+              "traceparent": "${func2_ts.output.traceparent}",
+              "y": "${func2_ts.output.y}",
+              "y_tag": "${func2_ts.output.y_tag}"
             }
           }
         ]
@@ -121,10 +147,14 @@
             "workflowOutput": {
               "attempts": "${review_loop.output.iteration}",
               "comment": "${workflow.variables.last_comment}",
+              "correlation_id": "${workflow.variables.correlation_id}",
               "decision": "${workflow.variables.last_decision}",
               "final_x": "${workflow.variables.current_x}",
+              "initial_x": "${workflow.variables.initial_x}",
+              "initial_x_tag": "${workflow.variables.initial_x_tag}",
               "traceparent": "${workflow.variables.traceparent}",
-              "y": null
+              "y": null,
+              "y_tag": ""
             }
           }
         }

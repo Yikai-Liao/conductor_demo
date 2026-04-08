@@ -25,15 +25,15 @@ curl -fsS "${NOMAD_ADDR}/v1/job/review-service" >/dev/null
 
 wait_for_contains \
   "func1 task metrics" \
-  "${VM_INTERNAL_URL}/api/v1/query?query=sum%20by%20(service)(conductor_demo_task_runs_total)" \
+  "${VM_INTERNAL_URL}/api/v1/query?query=sum%20by%20(exported_service)(conductor_demo_task_runs_total)" \
   "func1-python"
 wait_for_contains \
   "func2 task metrics" \
-  "${VM_INTERNAL_URL}/api/v1/query?query=sum%20by%20(service)(conductor_demo_task_runs_total)" \
+  "${VM_INTERNAL_URL}/api/v1/query?query=sum%20by%20(exported_service)(conductor_demo_task_runs_total)" \
   "func2-ts"
 wait_for_contains \
   "review metrics" \
-  "${VM_INTERNAL_URL}/api/v1/query?query=sum%20by%20(service,decision)(conductor_demo_review_decisions_total)" \
+  "${VM_INTERNAL_URL}/api/v1/query?query=sum%20by%20(exported_service,decision)(conductor_demo_review_decisions_total)" \
   "review-service"
 
 wait_for_contains \

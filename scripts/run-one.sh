@@ -8,12 +8,12 @@ load_env
 require_command curl
 require_command jq
 
-x=1
+x=""
 auto_review=0
 wait_for_completion=0
 review_mode="manual"
 approval_threshold="${REVIEW_APPROVAL_THRESHOLD}"
-correlation_id="run-one-$(date +%s)-$$"
+correlation_id=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -44,6 +44,14 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ -z "${x}" ]]; then
+  x="$(pick_default_initial_x)"
+fi
+
+if [[ -z "${correlation_id}" ]]; then
+  correlation_id="$(build_default_correlation_id "run-one" "${x}" "$(date +%s)-$$")"
+fi
 
 workflow_id="$(start_workflow "${x}" "${correlation_id}" "${auto_review}" "${review_mode}" "single" "${approval_threshold}")"
 

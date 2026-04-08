@@ -44,12 +44,6 @@ const failureCounter = new Counter({
   help: "Review failures observed by the review service",
   registers: [promRegistry],
 });
-const reviewDecisionsProm = new Counter({
-  name: "conductor_demo_review_decisions_total",
-  help: "Total review decisions emitted by the review service",
-  labelNames: ["service", "decision"] as const,
-  registers: [promRegistry],
-});
 const pendingGauge = new Gauge({
   name: "conductor_demo_review_pending_total",
   help: "Pending review tasks observed by the review service",
@@ -66,7 +60,7 @@ const client = new ConductorClient(CONDUCTOR_SERVER_URL);
 function logEvent(
   level: "ERROR" | "INFO",
   message: string,
-  fields: Record<string, number | string | undefined>,
+  fields: Record<string, unknown>,
 ): void {
   process.stdout.write(
     `${JSON.stringify({
@@ -78,6 +72,15 @@ function logEvent(
       ...fields,
     })}\n`,
   );
+}
+
+function toOptionalNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === "") {
+    return undefined;
+  }
+
+  const numeric = Number(value);
+  return Number.isNaN(numeric) ? undefined : Number(numeric.toFixed(2));
 }
 
 function sleep(ms: number): Promise<void> {
@@ -217,7 +220,17 @@ async function processDecision(
       "review.mode": mode,
     },
     async () => {
+      const correlationId =
+        typeof taskInput.correlation_id === "string" ? taskInput.correlation_id : undefined;
+      const initialX = toOptionalNumber(taskInput.initial_x);
+      const initialXTag =
+        typeof taskInput.initial_x_tag === "string" ? taskInput.initial_x_tag : undefined;
+
       logEvent("INFO", "review started", {
+        candidate_x: toOptionalNumber(taskInput.candidate_x),
+        correlation_id: correlationId,
+        initial_x: initialX,
+        initial_x_tag: initialXTag,
         review_state: REVIEW_REVIEWING,
         taskId: task.taskId,
         workflowId: task.workflowInstanceId,
@@ -239,6 +252,9 @@ async function processDecision(
       const processedAt = new Date().toISOString();
       const outputData = {
         ...decision,
+        correlation_id: correlationId ?? "",
+        initial_x: initialX,
+        initial_x_tag: initialXTag ?? "",
         processed_at: processedAt,
         traceparent: currentTraceparent(),
         workflowId: task.workflowInstanceId,
@@ -262,22 +278,24 @@ async function processDecision(
         service: SERVICE_NAME,
       });
       durationHistogram.observe(durationMs / 1000);
-      reviewDecisionsProm.inc({
-        service: SERVICE_NAME,
-        decision: decision.decision,
-      });
       logEvent("INFO", "review completed", {
         decision: decision.decision,
-        delay_ms: String(delayMs),
-        next_x: String(decision.next_x),
+        delay_ms: delayMs,
+        initial_x: initialX,
+        initial_x_tag: initialXTag,
+        next_x: decision.next_x,
+        correlation_id: correlationId,
         taskId: task.taskId,
         workflowId: task.workflowInstanceId,
       });
 
       return {
         comment: decision.comment,
+        correlation_id: correlationId ?? "",
         decision: decision.decision,
         delay_ms: delayMs,
+        initial_x: initialX,
+        initial_x_tag: initialXTag ?? "",
         next_x: decision.next_x,
         processed_at: processedAt,
         taskId: task.taskId,
