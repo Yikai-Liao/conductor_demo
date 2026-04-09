@@ -114,6 +114,12 @@ func1-python -> HUMAN review -> func2-ts
 
 - `http://localhost:18080`，Gateway / Conductor UI / API / Review API
 - `http://localhost:13000`，Grafana
+- `http://localhost:8428`，VictoriaMetrics HTTP API
+- `http://localhost:9428`，VictoriaLogs HTTP API
+- `http://localhost:4317`，OTel Collector OTLP/gRPC
+- `http://localhost:4318`，OTel Collector OTLP/HTTP
+- `http://localhost:8889/metrics`，OTel Collector Prometheus exporter
+- `http://localhost:8686`，Vector API
 - `http://localhost:18200`，Vault API，仅本机访问
 - `http://127.0.0.1:4646`，Nomad UI / API
 - `http://127.0.0.1:8500`，Consul UI / API
@@ -124,11 +130,7 @@ func1-python -> HUMAN review -> func2-ts
 - `func1-python`
 - `func2-ts`
 - `review-service` 容器端口
-- `otel-collector`
 - `vmagent`
-- `victoria-metrics`
-- `victoria-logs`
-- `vector`
 
 这不是洁癖，是为了保证 demo 的网络边界和讲述口径一致。否则一边说“通过网关和服务发现访问”，一边又把所有内部端口摊平到宿主机，观众一眼就会看出是假的。
 

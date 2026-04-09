@@ -58,6 +58,12 @@ loginctl enable-linger "$USER"
 
 - `http://localhost:18080`：Gateway、Conductor UI、Conductor API、Review API
 - `http://localhost:13000`：Grafana
+- `http://localhost:8428`：VictoriaMetrics HTTP API
+- `http://localhost:9428`：VictoriaLogs HTTP API
+- `http://localhost:4317`：OTel Collector OTLP/gRPC
+- `http://localhost:4318`：OTel Collector OTLP/HTTP
+- `http://localhost:8889/metrics`：OTel Collector Prometheus exporter
+- `http://localhost:8686`：Vector API
 - `http://localhost:18200`：Vault API，仅本机访问
 - `http://127.0.0.1:4646`：Nomad UI / API
 - `http://127.0.0.1:8500`：Consul UI / API
@@ -76,8 +82,26 @@ loginctl enable-linger "$USER"
 
 默认网络边界：
 
-- `Gateway` 与 `Grafana` 绑定在 `${PUBLIC_BIND_ADDR:-0.0.0.0}`，可用于局域网访问
+- `Gateway`、`Grafana`、`VictoriaMetrics`、`VictoriaLogs`、`OTel Collector`、`Vector API` 绑定在 `${PUBLIC_BIND_ADDR:-0.0.0.0}`，可用于局域网访问
 - `Vault`、`Nomad`、`Consul` 仅绑定本机回环地址；容器侧通过 Docker host-gateway 代理访问，不直接暴露到局域网
+
+可观测系统直接访问方式：
+
+- VictoriaMetrics:
+  `http://localhost:8428`
+  示例:
+  `http://localhost:8428/vmui/`
+  `http://localhost:8428/api/v1/query?query=up`
+- VictoriaLogs:
+  `http://localhost:9428`
+  这套 demo 默认还是建议通过 Grafana 看日志；直接端口主要用于 API 调试和连通性验证
+- OTel Collector:
+  `4317` 用于 OTLP/gRPC
+  `4318` 用于 OTLP/HTTP
+  `http://localhost:8889/metrics` 可直接查看 Collector 自身导出的 Prometheus 指标
+- Vector:
+  `http://localhost:8686`
+  用于查看 Vector API 和健康状态
 
 如果构建阶段需要代理，填写 `.env` 里的 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` 即可。
 

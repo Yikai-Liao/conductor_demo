@@ -9,10 +9,16 @@
 - Conductor 平台: `http://10.0.0.202:18080`
 - Swagger: `http://10.0.0.202:18080/swagger-ui/index.html`
 - Grafana: `http://10.0.0.202:13000`
+- VictoriaMetrics: `http://10.0.0.202:8428`
+- VictoriaLogs: `http://10.0.0.202:9428`
+- OTel Collector OTLP/gRPC: `10.0.0.202:4317`
+- OTel Collector OTLP/HTTP: `http://10.0.0.202:4318`
+- OTel Collector Metrics: `http://10.0.0.202:8889/metrics`
+- Vector API: `http://10.0.0.202:8686`
 
 说明：
 
-- 当前只对局域网暴露了 `Conductor/Gateway` 和 `Grafana`
+- 当前对局域网暴露了 `Conductor/Gateway`、`Grafana` 和可观测组件入口
 - `Nomad`、`Consul`、`Vault` 没有对外开放
 
 ## 测试账号和凭据
@@ -148,6 +154,23 @@ curl -s \
 - worker 指标
 - workflow 相关日志链路
 - `workflowId` / `taskId` / `trace_id`
+
+### 可观测原始入口
+
+- VictoriaMetrics UI:
+  `http://10.0.0.202:8428/vmui/`
+- VictoriaMetrics 即时查询:
+  `http://10.0.0.202:8428/api/v1/query?query=up`
+- OTel Collector 指标:
+  `http://10.0.0.202:8889/metrics`
+- Vector API:
+  `http://10.0.0.202:8686`
+
+说明：
+
+- `4317` 是 OTLP/gRPC 入口，适合应用直接上报遥测
+- `4318` 是 OTLP/HTTP 入口，适合 curl 或 HTTP SDK 验证
+- `9428` 是 VictoriaLogs 原始 API 入口；日常查日志仍然优先用 Grafana
 
 ## 常见现象
 

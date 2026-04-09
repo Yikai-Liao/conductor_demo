@@ -61,6 +61,10 @@ services:
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
       - ./config/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "${PUBLIC_BIND_ADDR:-0.0.0.0}:4317:4317"
+      - "${PUBLIC_BIND_ADDR:-0.0.0.0}:4318:4318"
+      - "${PUBLIC_BIND_ADDR:-0.0.0.0}:8889:8889"
     networks:
       - demo
     restart: unless-stopped
@@ -91,6 +95,8 @@ services:
       - --httpListenAddr=:8428
     volumes:
       - victoria_metrics_data:/victoria-metrics-data
+    ports:
+      - "${PUBLIC_BIND_ADDR:-0.0.0.0}:8428:8428"
     networks:
       - demo
     restart: unless-stopped
@@ -102,6 +108,8 @@ services:
       - --httpListenAddr=:9428
     volumes:
       - victoria_logs_data:/victoria-logs-data
+    ports:
+      - "${PUBLIC_BIND_ADDR:-0.0.0.0}:9428:9428"
     networks:
       - demo
     restart: unless-stopped
@@ -115,6 +123,8 @@ services:
       - ./config/vector/vector.yaml:/etc/vector/vector.yaml:ro
       - vector_data:/var/lib/vector
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "${PUBLIC_BIND_ADDR:-0.0.0.0}:8686:8686"
     networks:
       - demo
     restart: unless-stopped
