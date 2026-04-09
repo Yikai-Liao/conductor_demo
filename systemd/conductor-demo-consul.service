@@ -1,0 +1,14 @@
+[Unit]
+Description=Conductor Demo Host Consul
+PartOf=conductor-demo.target
+
+[Service]
+Type=simple
+WorkingDirectory=@@ROOT_DIR@@
+ExecStart=@@ROOT_DIR@@/scripts/start-host-consul.sh --foreground
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=conductor-demo.target
+

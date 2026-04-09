@@ -54,6 +54,14 @@ vault_read() {
     "${VAULT_ADDR}${path}"
 }
 
+mounts_json="$(vault_read "/v1/sys/mounts")"
+if ! echo "${mounts_json}" | jq -e 'has("secret/")' >/dev/null; then
+  vault_api \
+    "POST" \
+    "/v1/sys/mounts/secret" \
+    '{"type":"kv","options":{"version":"2"}}'
+fi
+
 auth_methods_json="$(vault_read "/v1/sys/auth")"
 if ! echo "${auth_methods_json}" | jq -e 'has("jwt-nomad/")' >/dev/null; then
   vault_api "POST" "/v1/sys/auth/jwt-nomad" '{"type":"jwt"}'

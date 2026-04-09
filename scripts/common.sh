@@ -49,6 +49,8 @@ load_env() {
   done
 
   : "${DOCKER_NETWORK:=conductor-demo}"
+  : "${PUBLIC_BIND_ADDR:=0.0.0.0}"
+  : "${LOCAL_BIND_ADDR:=127.0.0.1}"
   : "${GATEWAY_URL:=http://localhost:18080}"
   : "${CONDUCTOR_SERVER_URL:=${GATEWAY_URL}/api}"
   : "${CONDUCTOR_UI_URL:=${GATEWAY_URL}}"
@@ -56,10 +58,12 @@ load_env() {
   : "${NOMAD_ADDR:=http://127.0.0.1:4646}"
   : "${CONSUL_HTTP_ADDR:=http://127.0.0.1:8500}"
   : "${VAULT_ADDR:=http://localhost:18200}"
-  : "${VAULT_TOKEN:=root}"
   : "${GRAFANA_URL:=http://localhost:13000}"
   : "${VM_INTERNAL_URL:=http://victoria-metrics:8428}"
   : "${VL_INTERNAL_URL:=http://victoria-logs:9428}"
+  : "${VAULT_STATE_DIR:=${ROOT_DIR}/runtime/vault-state}"
+  : "${VAULT_ROOT_TOKEN_FILE:=${VAULT_STATE_DIR}/root-token}"
+  : "${VAULT_UNSEAL_KEY_FILE:=${VAULT_STATE_DIR}/unseal-key}"
   : "${REVIEW_API_TOKEN:=review-demo-token}"
   : "${REVIEW_APPROVAL_THRESHOLD:=5}"
   : "${REVIEW_MAX_DELAY_MS:=5000}"
@@ -79,6 +83,11 @@ load_env() {
   : "${FUNC1_IMAGE:=conductor-demo/func1-python:dev}"
   : "${FUNC2_IMAGE:=conductor-demo/func2-ts:dev}"
   : "${REVIEW_SERVICE_IMAGE:=conductor-demo/review-service:dev}"
+
+  if [[ -z "${VAULT_TOKEN:-}" && -f "${VAULT_ROOT_TOKEN_FILE}" ]]; then
+    VAULT_TOKEN="$(tr -d '[:space:]' < "${VAULT_ROOT_TOKEN_FILE}")"
+    export VAULT_TOKEN
+  fi
 }
 
 require_command() {
@@ -94,12 +103,7 @@ ensure_runtime_dirs() {
     "${ROOT_DIR}/generated" \
     "${ROOT_DIR}/runtime/host-consul" \
     "${ROOT_DIR}/runtime/host-nomad" \
-    "${ROOT_DIR}/runtime/postgres" \
-    "${ROOT_DIR}/runtime/vector" \
-    "${ROOT_DIR}/runtime/vault" \
-    "${ROOT_DIR}/runtime/victoria-logs" \
-    "${ROOT_DIR}/runtime/victoria-metrics" \
-    "${ROOT_DIR}/runtime/vmagent"
+    "${ROOT_DIR}/runtime/vault-state"
 }
 
 wait_for_http() {

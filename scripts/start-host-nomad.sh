@@ -10,11 +10,30 @@ require_command nomad
 
 ensure_runtime_dirs
 
+foreground=0
+if [[ "${1:-}" == "--foreground" ]]; then
+  foreground=1
+fi
+
 readonly NOMAD_PID_FILE="${ROOT_DIR}/runtime/host-nomad/nomad.pid"
 readonly NOMAD_LOG_FILE="${ROOT_DIR}/runtime/host-nomad/nomad.log"
 readonly NOMAD_CONFIG_FILE="${ROOT_DIR}/generated/nomad.host.hcl"
 
 render_config_template "${ROOT_DIR}/config/nomad/nomad.hcl" "${NOMAD_CONFIG_FILE}"
+
+if [[ "${foreground}" == "1" ]]; then
+  exec env \
+    -u HTTP_PROXY \
+    -u HTTPS_PROXY \
+    -u ALL_PROXY \
+    -u NO_PROXY \
+    -u http_proxy \
+    -u https_proxy \
+    -u all_proxy \
+    -u no_proxy \
+    NOMAD_SKIP_DOCKER_IMAGE_WARN=1 \
+    nomad agent -config="${NOMAD_CONFIG_FILE}"
+fi
 
 if [[ -f "${NOMAD_PID_FILE}" ]]; then
   existing_pid="$(cat "${NOMAD_PID_FILE}")"

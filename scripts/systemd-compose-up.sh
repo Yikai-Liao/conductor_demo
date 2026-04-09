@@ -5,7 +5,6 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 load_env
-require_command consul
 require_command docker
 
 if [[ ! -f "${ROOT_DIR}/.env" ]]; then
@@ -19,16 +18,18 @@ fi
 
 ensure_runtime_dirs
 
-"${SCRIPT_DIR}/start-host-consul.sh"
+until docker info >/dev/null 2>&1; do
+  sleep 2
+done
 
 cd "${ROOT_DIR}"
-docker compose up -d --build --remove-orphans --force-recreate
+docker compose up -d --remove-orphans --force-recreate
 
 "${SCRIPT_DIR}/init-vault.sh"
+
 wait_for_http "Gateway" "${GATEWAY_URL}/healthz"
 wait_for_http "Grafana" "${GRAFANA_URL}/api/health"
 
 "${SCRIPT_DIR}/register-infra-services.sh"
-"${SCRIPT_DIR}/start-host-nomad.sh"
 
-echo "基础设施已启动"
+echo "基础设施服务已启动"

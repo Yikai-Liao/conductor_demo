@@ -1,0 +1,16 @@
+[Unit]
+Description=Conductor Demo Host Nomad
+After=conductor-demo-compose.service
+Requires=conductor-demo-compose.service
+PartOf=conductor-demo.target
+
+[Service]
+Type=simple
+WorkingDirectory=@@ROOT_DIR@@
+ExecStart=@@ROOT_DIR@@/scripts/start-host-nomad.sh --foreground
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=conductor-demo.target
+

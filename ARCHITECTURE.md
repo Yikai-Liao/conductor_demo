@@ -93,11 +93,11 @@ func1-python -> HUMAN review -> func2-ts
 
 ### 密钥分发, `Vault`
 
-当前使用的是 compose 内的 `Vault dev server`，原因很直接：
+当前使用的是 compose 内的单节点 `Vault`。服务端数据走 Docker named volume，`root-token` / `unseal-key` 落在 `runtime/vault-state/`，原因很直接：
 
 - 宿主机现成有 `consul` 和 `nomad`
 - 宿主机没有 `vault` 二进制
-- 这次 demo 需要的是“密钥分发路径被体现出来”，不是要做生产级 Vault 集群
+- 这次 demo 需要的是“密钥分发路径被体现出来”，同时又不能每次重启都重新初始化
 
 [scripts/init-control-plane.sh](scripts/init-control-plane.sh) 会完成：
 
@@ -106,7 +106,7 @@ func1-python -> HUMAN review -> func2-ts
 - 写入 Conductor 数据库凭据
 - 写入 review API token
 
-对应 job 再通过 `vault` stanza + template 取出 secret。当前这条路径足以证明“密钥来自 Vault”，但它仍然是 dev 模式，不是生产安全基线。
+对应 job 再通过 `vault` stanza + template 取出 secret。当前这条路径足以证明“密钥来自 Vault”，同时避免了每次重启都重新 seed Vault。
 
 ## 端口与网络边界
 
@@ -114,7 +114,7 @@ func1-python -> HUMAN review -> func2-ts
 
 - `http://localhost:18080`，Gateway / Conductor UI / API / Review API
 - `http://localhost:13000`，Grafana
-- `http://localhost:18200`，Vault dev API
+- `http://localhost:18200`，Vault API，仅本机访问
 - `http://127.0.0.1:4646`，Nomad UI / API
 - `http://127.0.0.1:8500`，Consul UI / API
 
@@ -139,12 +139,14 @@ func1-python -> HUMAN review -> func2-ts
 - [scripts/up.sh](scripts/up.sh)，起基础设施和宿主机控制面
 - [scripts/seed.sh](scripts/seed.sh)，构建业务镜像、初始化控制面、提交 Nomad jobs、注册 definitions
 - [scripts/bootstrap.sh](scripts/bootstrap.sh)，串联 `up.sh + seed.sh`
+- [scripts/reconcile.sh](scripts/reconcile.sh)，只补齐缺失状态，适合 `systemd` 日常拉起
 
 这样拆的原因很朴素：
 
 - `up.sh` 失败时，问题通常在基础设施层
 - `seed.sh` 失败时，问题通常在镜像、Vault、Consul KV、Nomad submit 或 Conductor metadata
 - 演示时可以一键跑，排障时又不用每次把整套环境全砸一遍
+- `systemd` 场景下不应该每次执行完整 bootstrap，而应该走 `reconcile.sh`
 
 ## 构建、代理和镜像源
 
@@ -211,9 +213,9 @@ workflow 编排推荐用 `https://developer.orkescloud.com/workflowDef`，但本
 
 - 控制面分布在宿主机与 compose 两侧，排障时要清楚自己在看哪一层
 
-### 2. `Vault` 是 dev 模式
+### 2. `Vault` 是单节点持久化，不是生产高可用
 
-这是 demo 允许的简化，但必须明确写出来。它证明了密钥分发路径，不证明生产安全性。
+这套配置解决的是“重启后状态不丢”的问题，不解决生产级别的 HA、KMS auto-unseal、审计与访问隔离。
 
 ### 3. Gateway 动态刷新有时间窗
 

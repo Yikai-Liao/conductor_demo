@@ -1,0 +1,16 @@
+[Unit]
+Description=Conductor Demo Runtime Reconcile
+After=conductor-demo-compose.service conductor-demo-nomad.service
+Requires=conductor-demo-compose.service conductor-demo-nomad.service
+PartOf=conductor-demo.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=@@ROOT_DIR@@
+ExecStart=@@ROOT_DIR@@/scripts/reconcile.sh
+TimeoutStartSec=0
+
+[Install]
+WantedBy=conductor-demo.target
+

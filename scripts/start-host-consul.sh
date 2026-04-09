@@ -10,11 +10,29 @@ require_command curl
 
 ensure_runtime_dirs
 
+foreground=0
+if [[ "${1:-}" == "--foreground" ]]; then
+  foreground=1
+fi
+
 readonly CONSUL_PID_FILE="${ROOT_DIR}/runtime/host-consul/consul.pid"
 readonly CONSUL_LOG_FILE="${ROOT_DIR}/runtime/host-consul/consul.log"
 readonly CONSUL_CONFIG_FILE="${ROOT_DIR}/generated/consul.host.hcl"
 
 render_config_template "${ROOT_DIR}/config/consul/consul.hcl" "${CONSUL_CONFIG_FILE}"
+
+if [[ "${foreground}" == "1" ]]; then
+  exec env \
+    -u HTTP_PROXY \
+    -u HTTPS_PROXY \
+    -u ALL_PROXY \
+    -u NO_PROXY \
+    -u http_proxy \
+    -u https_proxy \
+    -u all_proxy \
+    -u no_proxy \
+    consul agent -config-file="${CONSUL_CONFIG_FILE}"
+fi
 
 if [[ -f "${CONSUL_PID_FILE}" ]]; then
   existing_pid="$(cat "${CONSUL_PID_FILE}")"

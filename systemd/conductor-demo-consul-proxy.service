@@ -1,0 +1,8 @@
+[Unit]
+Description=Conductor Demo Consul Docker Proxy
+PartOf=conductor-demo.target
+
+[Service]
+ExecStart=@@SYSTEMD_SOCKET_PROXYD@@ 127.0.0.1:8500
+PrivateTmp=true
+

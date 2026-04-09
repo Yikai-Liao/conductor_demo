@@ -1,0 +1,12 @@
+[Unit]
+Description=Conductor Demo Consul Docker Proxy Socket
+PartOf=conductor-demo.target
+
+[Socket]
+ListenStream=@@DOCKER_HOST_GATEWAY_ADDR@@:8500
+NoDelay=true
+ReusePort=true
+
+[Install]
+WantedBy=conductor-demo.target
+

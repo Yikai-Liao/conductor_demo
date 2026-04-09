@@ -6,6 +6,8 @@
 
 实现细节、踩坑记录和设计取舍见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
+如果要把链接直接发给只做平台测试的同事，看 [COLLEAGUE_QUICKSTART.md](COLLEAGUE_QUICKSTART.md)。
+
 ## 特性
 
 - `docker compose` 只负责基础设施和网络分区模拟；业务组件通过 `Nomad jobs` 运行。
@@ -39,11 +41,24 @@ cp .env.example .env
 ./scripts/seed.sh
 ```
 
+如果你希望改成 `user systemd` 托管，并且开机自启、异常重拉：
+
+```sh
+./scripts/install-user-systemd.sh
+systemctl --user enable --now conductor-demo.target
+```
+
+如果要实现“开机后无登录也自动拉起”，还需要额外执行一次：
+
+```sh
+loginctl enable-linger "$USER"
+```
+
 默认宿主机入口：
 
 - `http://localhost:18080`：Gateway、Conductor UI、Conductor API、Review API
 - `http://localhost:13000`：Grafana
-- `http://localhost:18200`：Vault dev API
+- `http://localhost:18200`：Vault API，仅本机访问
 - `http://127.0.0.1:4646`：Nomad UI / API
 - `http://127.0.0.1:8500`：Consul UI / API
 
@@ -58,6 +73,11 @@ cp .env.example .env
 - `victoria-metrics`
 - `victoria-logs`
 - `vector`
+
+默认网络边界：
+
+- `Gateway` 与 `Grafana` 绑定在 `${PUBLIC_BIND_ADDR:-0.0.0.0}`，可用于局域网访问
+- `Vault`、`Nomad`、`Consul` 仅绑定本机回环地址；容器侧通过 Docker host-gateway 代理访问，不直接暴露到局域网
 
 如果构建阶段需要代理，填写 `.env` 里的 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` 即可。
 
@@ -139,6 +159,12 @@ curl -s "http://localhost:18080/api/workflow/${workflow_id}" | jq '{workflowId,s
 - `jobs/*.nomad.hcl` 通过 `service`、`key`、`secret` 在运行时解析依赖、配置和密钥
 
 这意味着业务组件不依赖写死的 compose service name，也不依赖为每个内部服务额外开宿主机端口。
+
+补充说明：
+
+- `Vault` 数据现在走 Docker named volume 持久化
+- `Vault` 的 `root-token` / `unseal-key` 落在 `runtime/vault-state/`
+- `scripts/reconcile.sh` 会在启动时只补齐缺失状态，不会每次重建整套环境
 
 ## 人工审批 API
 

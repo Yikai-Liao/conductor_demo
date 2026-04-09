@@ -1,0 +1,18 @@
+[Unit]
+Description=Conductor Demo Infrastructure Containers
+After=conductor-demo-consul.service conductor-demo-consul-proxy.socket conductor-demo-nomad-proxy.socket
+Requires=conductor-demo-consul.service
+PartOf=conductor-demo.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=@@ROOT_DIR@@
+ExecStart=@@ROOT_DIR@@/scripts/systemd-compose-up.sh
+ExecStop=@@ROOT_DIR@@/scripts/systemd-compose-down.sh
+TimeoutStartSec=0
+TimeoutStopSec=120
+
+[Install]
+WantedBy=conductor-demo.target
+

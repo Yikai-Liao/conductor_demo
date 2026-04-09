@@ -1,0 +1,11 @@
+[Unit]
+Description=Conductor Demo Stack
+Wants=conductor-demo-consul.service
+Wants=conductor-demo-consul-proxy.socket
+Wants=conductor-demo-compose.service
+Wants=conductor-demo-nomad.service
+Wants=conductor-demo-nomad-proxy.socket
+Wants=conductor-demo-reconcile.service
+
+[Install]
+WantedBy=default.target
