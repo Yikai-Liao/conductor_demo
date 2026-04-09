@@ -6,19 +6,30 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 load_env
 require_command docker
+require_command curl
 
-build_args=()
-
-for key in HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY; do
-  value="${!key:-}"
-  if [[ -n "${value}" ]]; then
-    build_args+=(--build-arg "${key}=${value}")
-  fi
-done
+build_args=(
+  --build-arg "DOCKER_IMAGE_PREFIX=${DOCKER_IMAGE_PREFIX}"
+)
 
 cd "${ROOT_DIR}"
 
-docker build --network host "${build_args[@]}" -f "docker/conductor-ui/Dockerfile" -t "${CONDUCTOR_UI_IMAGE}" .
+conductor_ui_source_dir="${ROOT_DIR}/generated/conductor-ui"
+conductor_ui_source_archive="${conductor_ui_source_dir}/conductor-source.tar.gz"
+conductor_ui_source_version_file="${conductor_ui_source_dir}/conductor-source.version"
+
+mkdir -p "${conductor_ui_source_dir}"
+
+if [[ ! -f "${conductor_ui_source_archive}" ]] \
+  || [[ ! -f "${conductor_ui_source_version_file}" ]] \
+  || [[ "$(cat "${conductor_ui_source_version_file}")" != "${CONDUCTOR_VERSION}" ]]; then
+  tmp_archive="${conductor_ui_source_archive}.tmp"
+  curl -fsSL "https://github.com/conductor-oss/conductor/archive/refs/tags/v${CONDUCTOR_VERSION}.tar.gz" -o "${tmp_archive}"
+  mv "${tmp_archive}" "${conductor_ui_source_archive}"
+  printf '%s' "${CONDUCTOR_VERSION}" > "${conductor_ui_source_version_file}"
+fi
+
+docker build --network host "${build_args[@]}" --build-arg "CONDUCTOR_VERSION=${CONDUCTOR_VERSION}" -f "docker/conductor-ui/Dockerfile" -t "${CONDUCTOR_UI_IMAGE}" .
 docker build --network host "${build_args[@]}" -f "docker/func1-python/Dockerfile" -t "${FUNC1_IMAGE}" .
 docker build --network host "${build_args[@]}" -f "docker/func2-ts/Dockerfile" -t "${FUNC2_IMAGE}" .
 docker build --network host "${build_args[@]}" -f "docker/review-service/Dockerfile" -t "${REVIEW_SERVICE_IMAGE}" .

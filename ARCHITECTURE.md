@@ -157,10 +157,11 @@ func1-python -> HUMAN review -> func2-ts
 当前处理方式：
 
 - [scripts/build-images.sh](scripts/build-images.sh) 统一用 `docker build --network host`
-- 构建参数显式透传 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY`
+- Docker 基础镜像和运行时镜像统一走 `docker.randallanjie.com`
 - Python 依赖使用阿里云 PyPI 镜像
 - Node 依赖使用 `npmmirror`
-- Gateway 的 Alpine 构建阶段切到阿里云 Alpine 镜像
+- Alpine 构建阶段切到阿里云 Alpine 镜像
+- Conductor UI 的 Debian 包切到阿里云 Debian 镜像
 - Grafana 的 VictoriaLogs 插件先在宿主机下载，再 `COPY` 进镜像
 
 最后这条很重要。Docker build 期间最烦的不是“没代理”，而是“代理看起来有，实际上下载插件时就是不走”。把插件预下载到仓库固定路径，问题立刻少一半。

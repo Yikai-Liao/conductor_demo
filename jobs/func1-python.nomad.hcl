@@ -49,6 +49,7 @@ EOF
 
       config {
         image        = "@@FUNC1_IMAGE@@"
+        force_pull   = false
         network_mode = "@@DOCKER_NETWORK@@"
       }
 

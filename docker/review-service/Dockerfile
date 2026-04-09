@@ -1,18 +1,5 @@
-FROM node:22-bookworm-slim AS build
-
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG ALL_PROXY
-ARG NO_PROXY
-
-ENV HTTP_PROXY=${HTTP_PROXY}
-ENV HTTPS_PROXY=${HTTPS_PROXY}
-ENV ALL_PROXY=${ALL_PROXY}
-ENV NO_PROXY=${NO_PROXY}
-ENV http_proxy=${HTTP_PROXY}
-ENV https_proxy=${HTTPS_PROXY}
-ENV all_proxy=${ALL_PROXY}
-ENV no_proxy=${NO_PROXY}
+ARG DOCKER_IMAGE_PREFIX=docker.randallanjie.com
+FROM ${DOCKER_IMAGE_PREFIX}/library/node:24.14.1-bookworm-slim AS build
 
 WORKDIR /app
 
@@ -25,7 +12,7 @@ RUN npm config set registry https://registry.npmmirror.com \
     && npm run build \
     && npm prune --omit=dev
 
-FROM node:22-bookworm-slim
+FROM ${DOCKER_IMAGE_PREFIX}/library/node:24.14.1-bookworm-slim
 
 WORKDIR /app
 ENV NODE_ENV=production

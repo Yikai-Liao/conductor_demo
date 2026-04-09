@@ -57,6 +57,7 @@ EOF
 
       config {
         image        = "@@REVIEW_SERVICE_IMAGE@@"
+        force_pull   = false
         network_mode = "@@DOCKER_NETWORK@@"
       }
 

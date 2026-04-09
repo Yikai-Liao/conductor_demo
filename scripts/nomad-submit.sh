@@ -16,7 +16,7 @@ render_job() {
   local dst="$2"
 
   sed \
-    -e "s#@@CONDUCTOR_VERSION@@#${CONDUCTOR_VERSION}#g" \
+    -e "s#@@CONDUCTOR_IMAGE@@#${CONDUCTOR_IMAGE}#g" \
     -e "s#@@CONDUCTOR_UI_IMAGE@@#${CONDUCTOR_UI_IMAGE}#g" \
     -e "s#@@DOCKER_NETWORK@@#${DOCKER_NETWORK}#g" \
     -e "s#@@FUNC1_IMAGE@@#${FUNC1_IMAGE}#g" \

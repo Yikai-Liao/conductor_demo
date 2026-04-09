@@ -78,7 +78,8 @@ EOF
       }
 
       config {
-        image        = "conductoross/conductor:@@CONDUCTOR_VERSION@@"
+        image        = "@@CONDUCTOR_IMAGE@@"
+        force_pull   = false
         network_mode = "@@DOCKER_NETWORK@@"
         volumes = [
           "local/config-postgres.properties:/app/config/config-postgres.properties"

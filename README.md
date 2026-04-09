@@ -103,7 +103,7 @@ loginctl enable-linger "$USER"
   `http://localhost:8686`
   用于查看 Vector API 和健康状态
 
-如果构建阶段需要代理，填写 `.env` 里的 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、`NO_PROXY` 即可。
+构建阶段不再依赖代理。基础镜像统一走 `docker.randallanjie.com`，Python / Node / Alpine / Debian 包下载统一走镜像源。
 
 ## 使用
 

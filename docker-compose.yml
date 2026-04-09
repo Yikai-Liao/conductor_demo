@@ -1,32 +1,17 @@
-x-proxy-build-args: &proxy_build_args
-  HTTP_PROXY: ${HTTP_PROXY:-}
-  HTTPS_PROXY: ${HTTPS_PROXY:-}
-  ALL_PROXY: ${ALL_PROXY:-}
-  NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,.local},host.docker.internal,gateway,toolbox,postgres,otel-collector,grafana,vault,vector,vmagent,victoria-metrics,victoria-logs,.service.consul
-
-x-proxy-env: &proxy_env
-  HTTP_PROXY: ${HTTP_PROXY:-}
-  HTTPS_PROXY: ${HTTPS_PROXY:-}
-  ALL_PROXY: ${ALL_PROXY:-}
-  NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,.local},host.docker.internal,gateway,toolbox,postgres,otel-collector,grafana,vault,vector,vmagent,victoria-metrics,victoria-logs,.service.consul
-  http_proxy: ${HTTP_PROXY:-}
-  https_proxy: ${HTTPS_PROXY:-}
-  all_proxy: ${ALL_PROXY:-}
-  no_proxy: ${NO_PROXY:-localhost,127.0.0.1,.local},host.docker.internal,gateway,toolbox,postgres,otel-collector,grafana,vault,vector,vmagent,victoria-metrics,victoria-logs,.service.consul
+x-build-args: &build_args
+  DOCKER_IMAGE_PREFIX: ${DOCKER_IMAGE_PREFIX:-docker.randallanjie.com}
 
 name: ${COMPOSE_PROJECT_NAME:-conductor-demo}
 
 services:
   vault:
-    image: hashicorp/vault:${VAULT_VERSION:-1.17.6}
+    image: ${DOCKER_IMAGE_PREFIX:-docker.randallanjie.com}/hashicorp/vault:${VAULT_VERSION:-1.21.4}
     entrypoint: ["vault"]
     command:
       - server
       - -config=/vault/config/server.hcl
     cap_add:
       - IPC_LOCK
-    environment:
-      <<: *proxy_env
     volumes:
       - ./config/vault:/vault/config:ro
       - vault_data:/vault/file
@@ -39,9 +24,8 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:${POSTGRES_VERSION:-16-alpine}
+    image: ${DOCKER_IMAGE_PREFIX:-docker.randallanjie.com}/library/postgres:${POSTGRES_VERSION:-18.3-alpine}
     environment:
-      <<: *proxy_env
       POSTGRES_DB: ${POSTGRES_DB:-conductor}
       POSTGRES_USER: ${POSTGRES_USER:-conductor}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-conductor}
@@ -57,7 +41,7 @@ services:
     restart: unless-stopped
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:${OTEL_COLLECTOR_VERSION:-0.122.1}
+    image: ${DOCKER_IMAGE_PREFIX:-docker.randallanjie.com}/otel/opentelemetry-collector-contrib:${OTEL_COLLECTOR_VERSION:-0.149.0}
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
       - ./config/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
@@ -70,7 +54,7 @@ services:
     restart: unless-stopped
 
   vmagent:
-    image: victoriametrics/vmagent:${VICTORIA_METRICS_VERSION:-v1.112.0}
+    image: ${DOCKER_IMAGE_PREFIX:-docker.randallanjie.com}/victoriametrics/vmagent:${VICTORIA_METRICS_VERSION:-v1.139.0}
     command:
       - --promscrape.config=/etc/vmagent/prometheus.yml
       - --remoteWrite.url=http://victoria-metrics:8428/api/v1/write
@@ -89,7 +73,7 @@ services:
     restart: unless-stopped
 
   victoria-metrics:
-    image: victoriametrics/victoria-metrics:${VICTORIA_METRICS_VERSION:-v1.112.0}
+    image: ${DOCKER_IMAGE_PREFIX:-docker.randallanjie.com}/victoriametrics/victoria-metrics:${VICTORIA_METRICS_VERSION:-v1.139.0}
     command:
       - --storageDataPath=/victoria-metrics-data
       - --httpListenAddr=:8428
@@ -102,7 +86,7 @@ services:
     restart: unless-stopped
 
   victoria-logs:
-    image: victoriametrics/victoria-logs:${VICTORIA_LOGS_VERSION:-v1.18.0-victorialogs}
+    image: ${DOCKER_IMAGE_PREFIX:-docker.randallanjie.com}/victoriametrics/victoria-logs:${VICTORIA_LOGS_VERSION:-v1.24.0-victorialogs}
     command:
       - --storageDataPath=/victoria-logs-data
       - --httpListenAddr=:9428
@@ -115,7 +99,7 @@ services:
     restart: unless-stopped
 
   vector:
-    image: timberio/vector:${VECTOR_VERSION:-0.41.1-debian}
+    image: ${DOCKER_IMAGE_PREFIX:-docker.randallanjie.com}/timberio/vector:${VECTOR_VERSION:-0.54.0-debian}
     command: ["--config", "/etc/vector/vector.yaml"]
     depends_on:
       - victoria-logs
@@ -134,11 +118,11 @@ services:
       context: .
       dockerfile: docker/grafana/Dockerfile
       args:
-        GRAFANA_VERSION: ${GRAFANA_VERSION:-11.5.2}
+        <<: *build_args
+        GRAFANA_VERSION: ${GRAFANA_VERSION:-12.4.2}
         VICTORIALOGS_PLUGIN_VERSION: 0.26.3
       network: host
     environment:
-      <<: *proxy_env
       GF_PATHS_PLUGINS: /opt/grafana-plugins
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
@@ -159,10 +143,9 @@ services:
     build:
       context: .
       dockerfile: gateway/Dockerfile
-      args: *proxy_build_args
+      args: *build_args
       network: host
     environment:
-      <<: *proxy_env
       CONSUL_HTTP_ADDR: http://host.docker.internal:8500
       GATEWAY_PORT: 8080
       GATEWAY_REFRESH_SECONDS: 5
@@ -179,26 +162,25 @@ services:
       context: .
       dockerfile: toolbox/Dockerfile
       args:
-        <<: *proxy_build_args
-        CONSUL_VERSION: ${CONSUL_VERSION:-1.19.1}
-        NOMAD_VERSION: ${NOMAD_VERSION:-1.8.4}
-        VAULT_VERSION: ${VAULT_VERSION:-1.17.6}
+        <<: *build_args
+        CONSUL_VERSION: ${CONSUL_VERSION:-1.22.6}
+        NOMAD_VERSION: ${NOMAD_VERSION:-1.11.3}
+        VAULT_VERSION: ${VAULT_VERSION:-1.21.4}
       network: host
     command: ["sleep", "infinity"]
     environment:
-      <<: *proxy_env
       CONSUL_HTTP_ADDR: http://host.docker.internal:8500
       CONDUCTOR_SERVER_URL: http://gateway:8080/api
       CONDUCTOR_UI_URL: http://gateway:8080
       DOCKER_NETWORK: ${DOCKER_NETWORK:-conductor-demo}
-      FUNC1_IMAGE: ${FUNC1_IMAGE:-conductor-demo/func1-python:dev}
-      FUNC2_IMAGE: ${FUNC2_IMAGE:-conductor-demo/func2-ts:dev}
+      FUNC1_IMAGE: ${FUNC1_IMAGE:-docker.randallanjie.com/conductor-demo/func1-python:dev}
+      FUNC2_IMAGE: ${FUNC2_IMAGE:-docker.randallanjie.com/conductor-demo/func2-ts:dev}
       GATEWAY_URL: http://gateway:8080
       GRAFANA_URL: http://grafana:3000
       NOMAD_ADDR: http://host.docker.internal:4646
       REVIEW_API_TOKEN: ${REVIEW_API_TOKEN:-review-demo-token}
       REVIEW_SERVICE_URL: http://gateway:8080/review
-      REVIEW_SERVICE_IMAGE: ${REVIEW_SERVICE_IMAGE:-conductor-demo/review-service:dev}
+      REVIEW_SERVICE_IMAGE: ${REVIEW_SERVICE_IMAGE:-docker.randallanjie.com/conductor-demo/review-service:dev}
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: ${VAULT_TOKEN:-}
       VM_INTERNAL_URL: http://victoria-metrics:8428

@@ -33,6 +33,7 @@ job "conductor-ui" {
 
       config {
         image        = "@@CONDUCTOR_UI_IMAGE@@"
+        force_pull   = false
         network_mode = "@@DOCKER_NETWORK@@"
       }
 
