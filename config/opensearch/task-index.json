@@ -1,0 +1,131 @@
+{
+  "settings": {
+    "index": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    },
+    "analysis": {
+      "filter": {
+        "conductor_cjk_bigram": {
+          "type": "cjk_bigram",
+          "output_unigrams": true
+        }
+      },
+      "analyzer": {
+        "conductor_cjk_recall": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "cjk_width",
+            "lowercase",
+            "conductor_cjk_bigram"
+          ]
+        }
+      },
+      "normalizer": {
+        "conductor_lowercase": {
+          "type": "custom",
+          "filter": [
+            "lowercase"
+          ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "correlationId": {
+        "type": "keyword",
+        "index": true
+      },
+      "endTime": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis"
+      },
+      "executionTime": {
+        "type": "long"
+      },
+      "input": {
+        "type": "text",
+        "analyzer": "icu_analyzer",
+        "fields": {
+          "recall": {
+            "type": "text",
+            "analyzer": "conductor_cjk_recall"
+          },
+          "exact": {
+            "type": "keyword",
+            "normalizer": "conductor_lowercase"
+          }
+        }
+      },
+      "output": {
+        "type": "text",
+        "analyzer": "icu_analyzer",
+        "fields": {
+          "recall": {
+            "type": "text",
+            "analyzer": "conductor_cjk_recall"
+          },
+          "exact": {
+            "type": "keyword",
+            "normalizer": "conductor_lowercase"
+          }
+        }
+      },
+      "queueWaitTime": {
+        "type": "long"
+      },
+      "reasonForIncompletion": {
+        "type": "text",
+        "analyzer": "icu_analyzer",
+        "fields": {
+          "recall": {
+            "type": "text",
+            "analyzer": "conductor_cjk_recall"
+          },
+          "exact": {
+            "type": "keyword",
+            "normalizer": "conductor_lowercase"
+          }
+        }
+      },
+      "scheduledTime": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis"
+      },
+      "startTime": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis"
+      },
+      "status": {
+        "type": "keyword",
+        "index": true
+      },
+      "taskDefName": {
+        "type": "keyword",
+        "index": true
+      },
+      "taskId": {
+        "type": "keyword",
+        "index": true
+      },
+      "taskType": {
+        "type": "keyword",
+        "index": true
+      },
+      "updateTime": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis"
+      },
+      "workflowId": {
+        "type": "keyword",
+        "index": true
+      },
+      "workflowType": {
+        "type": "keyword",
+        "index": true
+      }
+    }
+  }
+}

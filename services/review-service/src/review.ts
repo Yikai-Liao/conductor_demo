@@ -106,7 +106,7 @@ export function buildReviewDecision(input: ReviewDecisionInput): ReviewDecisionR
     return {
       attempt,
       candidate_x: Number(candidateX.toFixed(2)),
-      comment: input.comment?.trim() || "人工审批通过",
+      comment: input.comment?.trim() || "人工审批通过 / approved",
       decision: REVIEW_APPROVED,
       delay_ms: input.delayMs,
       next_x: Number(candidateX.toFixed(2)),
@@ -118,7 +118,9 @@ export function buildReviewDecision(input: ReviewDecisionInput): ReviewDecisionR
     return {
       attempt,
       candidate_x: Number(candidateX.toFixed(2)),
-      comment: input.comment?.trim() || `数值不符合，打回 (candidate_x=${candidateX.toFixed(2)})`,
+      comment:
+        input.comment?.trim() ||
+        `资料不完整，退回补充 / rejected (candidate_x=${candidateX.toFixed(2)})`,
       decision: REVIEW_REJECTED,
       delay_ms: input.delayMs,
       next_x: Number((candidateX + increment).toFixed(2)),
@@ -129,7 +131,9 @@ export function buildReviewDecision(input: ReviewDecisionInput): ReviewDecisionR
     return {
       attempt,
       candidate_x: Number(candidateX.toFixed(2)),
-      comment: input.comment?.trim() || `自动审批通过，candidate_x=${candidateX.toFixed(2)}`,
+      comment:
+        input.comment?.trim() ||
+        `自动审批通过 / auto-approved, candidate_x=${candidateX.toFixed(2)}`,
       decision: REVIEW_APPROVED,
       delay_ms: input.delayMs,
       next_x: Number(candidateX.toFixed(2)),
@@ -140,7 +144,9 @@ export function buildReviewDecision(input: ReviewDecisionInput): ReviewDecisionR
   return {
     attempt,
     candidate_x: Number(candidateX.toFixed(2)),
-    comment: input.comment?.trim() || `自动审批打回，candidate_x=${candidateX.toFixed(2)}`,
+    comment:
+      input.comment?.trim() ||
+      `资料不完整，退回补充 / auto-rejected (candidate_x=${candidateX.toFixed(2)})`,
     decision: REVIEW_REJECTED,
     delay_ms: input.delayMs,
     next_x: Number((candidateX + increment).toFixed(2)),

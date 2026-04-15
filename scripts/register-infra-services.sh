@@ -44,9 +44,11 @@ register_service() {
 wait_for_http "Host Consul API" "${CONSUL_HTTP_ADDR}/v1/status/leader"
 
 postgres_ip="$(container_ip "postgres")"
+opensearch_ip="$(container_ip "opensearch")"
 otel_ip="$(container_ip "otel-collector")"
 
 register_service "postgres" "${postgres_ip}" 5432 '{"TCP":"'"${postgres_ip}"':5432","Interval":"10s","Timeout":"2s"}'
+register_service "opensearch" "${opensearch_ip}" 9200 '{"HTTP":"http://'"${opensearch_ip}"':9200/_cluster/health?wait_for_status=yellow","Interval":"10s","Timeout":"5s"}'
 register_service "otel-collector-otlp-http" "${otel_ip}" 4318 '{"TCP":"'"${otel_ip}"':4318","Interval":"10s","Timeout":"2s"}'
 register_service "otel-collector-metrics" "${otel_ip}" 8889 '{"HTTP":"http://'"${otel_ip}"':8889/metrics","Interval":"10s","Timeout":"2s"}'
 

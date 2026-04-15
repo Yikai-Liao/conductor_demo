@@ -50,8 +50,14 @@ conductor.postgres.schema=public
 
 conductor.queue.type=postgres
 conductor.indexing.enabled=true
-conductor.indexing.type=postgres
-conductor.elasticsearch.version=0
+conductor.indexing.type=opensearch2
+conductor.opensearch.version=2
+conductor.opensearch.url=http://{{ range service "opensearch" }}{{ .Address }}:{{ .Port }}{{ end }}
+conductor.opensearch.indexPrefix=conductor
+conductor.opensearch.indexShardCount=1
+conductor.opensearch.indexReplicasCount=0
+conductor.opensearch.clusterHealthColor=yellow
+conductor.opensearch.autoIndexManagementEnabled=true
 
 conductor.app.workflowExecutionLockEnabled=true
 conductor.workflow-execution-lock.type=postgres

@@ -9,6 +9,11 @@
   "timeoutSeconds": 0,
   "outputParameters": {
     "attempts": "${review_loop.output.iteration}",
+    "cn_case_body": "${workflow.variables.cn_case_body}",
+    "cn_case_title": "${workflow.variables.cn_case_title}",
+    "cn_final_summary": "${workflow.variables.cn_final_summary}",
+    "cn_keywords": "${workflow.variables.cn_keywords}",
+    "cn_review_comment": "${workflow.variables.cn_review_comment}",
     "comment": "${workflow.variables.last_comment}",
     "correlation_id": "${workflow.variables.correlation_id}",
     "decision": "${workflow.variables.last_decision}",
@@ -29,6 +34,11 @@
         "approval_threshold": "${workflow.input.approval_threshold}",
         "auto_review": "${workflow.input.auto_review}",
         "bulk_seed": "${workflow.input.bulk_seed}",
+        "cn_case_body": "${workflow.input.cn_case_body}",
+        "cn_case_title": "${workflow.input.cn_case_title}",
+        "cn_final_summary": "",
+        "cn_keywords": "${workflow.input.cn_keywords}",
+        "cn_review_comment": "",
         "correlation_id": "${workflow.input.correlation_id}",
         "current_x": "${workflow.input.x}",
         "initial_x": "${workflow.input.x}",
@@ -59,6 +69,9 @@
           "type": "SIMPLE",
           "inputParameters": {
             "attempt": "${review_loop.output.iteration}",
+            "cn_case_body": "${workflow.variables.cn_case_body}",
+            "cn_case_title": "${workflow.variables.cn_case_title}",
+            "cn_keywords": "${workflow.variables.cn_keywords}",
             "comments": "${workflow.variables.last_comment}",
             "correlation_id": "${workflow.variables.correlation_id}",
             "current_x": "${workflow.variables.current_x}",
@@ -76,6 +89,9 @@
             "attempt": "${func1_python.output.attempt}",
             "auto_review": "${workflow.variables.auto_review}",
             "candidate_x": "${func1_python.output.candidate_x}",
+            "cn_case_body": "${func1_python.output.cn_case_body}",
+            "cn_case_title": "${func1_python.output.cn_case_title}",
+            "cn_keywords": "${func1_python.output.cn_keywords}",
             "comment_in": "${func1_python.output.comment_in}",
             "correlation_id": "${workflow.variables.correlation_id}",
             "initial_x": "${workflow.variables.initial_x}",
@@ -89,6 +105,7 @@
           "taskReferenceName": "update_state",
           "type": "SET_VARIABLE",
           "inputParameters": {
+            "cn_review_comment": "${review_gate.output.cn_review_comment}",
             "current_x": "${review_gate.output.next_x}",
             "last_attempt": "${review_gate.output.attempt}",
             "last_comment": "${review_gate.output.comment}",
@@ -115,6 +132,10 @@
             "type": "SIMPLE",
             "inputParameters": {
               "attempt": "${review_loop.output.iteration}",
+              "cn_case_body": "${workflow.variables.cn_case_body}",
+              "cn_case_title": "${workflow.variables.cn_case_title}",
+              "cn_keywords": "${workflow.variables.cn_keywords}",
+              "cn_review_comment": "${workflow.variables.cn_review_comment}",
               "comment": "${workflow.variables.last_comment}",
               "correlation_id": "${workflow.variables.correlation_id}",
               "initial_x": "${workflow.variables.initial_x}",
@@ -124,13 +145,14 @@
             }
           },
           {
-            "name": "capture_final_state",
-            "taskReferenceName": "capture_final_state",
-            "type": "SET_VARIABLE",
-            "inputParameters": {
-              "trace_id": "${func2_ts.output.trace_id}",
-              "traceparent": "${func2_ts.output.traceparent}",
-              "y": "${func2_ts.output.y}",
+          "name": "capture_final_state",
+          "taskReferenceName": "capture_final_state",
+          "type": "SET_VARIABLE",
+          "inputParameters": {
+            "cn_final_summary": "${func2_ts.output.cn_final_summary}",
+            "trace_id": "${func2_ts.output.trace_id}",
+            "traceparent": "${func2_ts.output.traceparent}",
+            "y": "${func2_ts.output.y}",
               "y_tag": "${func2_ts.output.y_tag}"
             }
           }
@@ -146,6 +168,11 @@
             "terminationStatus": "FAILED",
             "workflowOutput": {
               "attempts": "${review_loop.output.iteration}",
+              "cn_case_body": "${workflow.variables.cn_case_body}",
+              "cn_case_title": "${workflow.variables.cn_case_title}",
+              "cn_final_summary": "${workflow.variables.cn_final_summary}",
+              "cn_keywords": "${workflow.variables.cn_keywords}",
+              "cn_review_comment": "${workflow.variables.cn_review_comment}",
               "comment": "${workflow.variables.last_comment}",
               "correlation_id": "${workflow.variables.correlation_id}",
               "decision": "${workflow.variables.last_decision}",

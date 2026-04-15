@@ -6,7 +6,7 @@
 
 当前仓库的运行面分成三层：
 
-- `docker compose` 只起基础设施：`vault`、`postgres`、`gateway`、`otel-collector`、`vector`、`victoria-metrics`、`victoria-logs`、`grafana`、`toolbox`
+- `docker compose` 只起基础设施：`vault`、`postgres`、`opensearch`、`gateway`、`otel-collector`、`vector`、`victoria-metrics`、`victoria-logs`、`grafana`、`toolbox`
 - 宿主机控制面跑 `consul` 和 `nomad`
 - 业务组件全部作为 `Nomad jobs` 运行：`conductor`、`conductor-ui`、`func1-python`、`review-service`、`func2-ts`
 
@@ -34,12 +34,13 @@ Conductor server 和 UI 都是 `Nomad jobs`，不是 compose service：
 - [jobs/conductor.nomad.hcl](jobs/conductor.nomad.hcl)
 - [jobs/conductor-ui.nomad.hcl](jobs/conductor-ui.nomad.hcl)
 
-Conductor server 通过 Nomad template 在启动时渲染 PostgreSQL 配置，其中：
+Conductor server 通过 Nomad template 在启动时渲染 PostgreSQL + OpenSearch 配置，其中：
 
 - PostgreSQL 地址来自 `Consul` 服务发现
+- OpenSearch 地址也来自 `Consul` 服务发现
 - 数据库用户名和密码来自 `Vault`
 
-这条链路是这次实现里专门保住的，不再退化成把账号密码直接写进 compose env。
+同时，Conductor server 镜像不再直接依赖上游预构建镜像，而是在仓库里按固定 `Conductor` tag 构建带 OpenSearch support 的 server jar。
 
 ### 3. Worker 与审批服务
 
@@ -73,6 +74,7 @@ func1-python -> HUMAN review -> func2-ts
 当前会被 Consul 看到的关键服务包括：
 
 - `postgres`
+- `opensearch`
 - `otel-collector-otlp-http`
 - `conductor-api`
 - `conductor-ui`
@@ -134,6 +136,12 @@ func1-python -> HUMAN review -> func2-ts
 
 这不是洁癖，是为了保证 demo 的网络边界和讲述口径一致。否则一边说“通过网关和服务发现访问”，一边又把所有内部端口摊平到宿主机，观众一眼就会看出是假的。
 
+这里现在多了一层显式补丁：
+
+- [scripts/start-host-proxies.sh](scripts/start-host-proxies.sh) 会在宿主机用 `socat` 把 Docker bridge gateway 的 `8500` 和 `4646` 代理到本机回环地址
+- 原因是 `Vault` JWT auth、`Gateway` 和 `toolbox` 都需要从容器里访问宿主机上的 `Nomad` / `Consul`
+- 这样既保住了 `Nomad` / `Consul` 只监听 `127.0.0.1` 的边界，又让容器侧能稳定命中 `.well-known/jwks.json` 和 Consul API
+
 ## 启动流程为什么拆成三段
 
 当前脚本拆成：
@@ -157,7 +165,9 @@ func1-python -> HUMAN review -> func2-ts
 当前处理方式：
 
 - [scripts/build-images.sh](scripts/build-images.sh) 统一用 `docker build --network host`
-- Docker 基础镜像和运行时镜像统一走 `docker.randallanjie.com`
+- Docker 基础镜像默认改成 `docker.io`
+- Conductor server 镜像从固定源码 tag 构建，并用 `-PindexingBackend=opensearch` 打开 OpenSearch persistence 模块
+- OpenSearch 自定义镜像在 build 时安装 `analysis-icu`
 - Python 依赖使用阿里云 PyPI 镜像
 - Node 依赖使用 `npmmirror`
 - Alpine 构建阶段切到阿里云 Alpine 镜像
@@ -186,20 +196,23 @@ workflow 编排推荐用 `https://developer.orkescloud.com/workflowDef`，但本
 
 当前稳定成立的能力是：
 
-- `Conductor UI` 能做 `workflowType / status / time range` 收敛
+- `Conductor UI` 和 `/workflow/search` 都能直接命中中文关键词
 - execution detail 能稳定查看 `decision`、`comment`、`final_x`、`y`
 - [scripts/search-output.sh](scripts/search-output.sh) 能对批量执行结果做阈值核对
 
-当前需要显式验证的能力是：
-
-- `output.y > 10.1` 这种数值条件，能不能完全依赖当前 Conductor search backend 在 UI 或 API 中直接命中
-
 所以仓库保留了两个脚本：
 
-- [scripts/prove-search.sh](scripts/prove-search.sh)，检查当前 search backend 是否已经能命中 `output.y`
+- [scripts/prove-search.sh](scripts/prove-search.sh)，检查当前 Conductor 内置搜索是否已经命中 `仓库巡检`
 - [scripts/search-output.sh](scripts/search-output.sh)，对已完成执行做结果阈值核对
 
 别把这两件事混了。一个是“搜索能力是否存在”，一个是“演示结果如何稳定核对”。
+
+如果要证明“中文分词”本身，而不是“完整中文字符串被索引”，当前更可靠的证据是：
+
+- 对 `conductor_workflow` 调 `_analyze`
+- `icu_analyzer` 能把 `仓库巡检 付款节点` 切成 `仓库 / 巡 / 检 / 付款 / 节点`
+- `conductor_cjk_recall` 能额外给出 `巡检`、`付款` 这类召回 token
+- Conductor `/workflow/search` 用 `巡检`、`付款` 这样的子词也能命中对应 workflow
 
 ## 当前已知取舍
 
@@ -224,9 +237,15 @@ workflow 编排推荐用 `https://developer.orkescloud.com/workflowDef`，但本
 
 Gateway 默认每 `5s` 从 `Consul` 刷新一次上游。也就是说，Nomad job 刚起来的一瞬间，Gateway 视图可能会短暂滞后。这是预期行为，不是玄学故障。
 
-### 4. `output.y` 数值筛选依赖索引表现
+### 4. 中文 analyzer 走 repo-owned bootstrap，不走 Conductor 默认 mapping
 
-这件事不是代码写不写的问题，而是当前 Conductor OSS 搜索链路对输出字段的索引表现问题。文档和演示都要把这件事说清楚，别假装 stock UI 一定能完成所有数值筛选。
+Conductor 自带的 OpenSearch mapping 对中文分词不够用，所以索引初始化单独放到 [scripts/bootstrap-opensearch.sh](scripts/bootstrap-opensearch.sh)：
+
+- `input` / `output` 主字段走 `icu_analyzer`
+- `recall` 子字段走自定义 `cjk_bigram`
+- `exact` 子字段走 `keyword + normalizer`
+
+这样做的代价是：升级已有 demo 环境时，如果旧 index mapping 不兼容，需要显式执行 `./scripts/bootstrap-opensearch.sh --reset`。
 
 ## 给后来维护者的排障入口
 

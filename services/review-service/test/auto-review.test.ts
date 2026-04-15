@@ -20,6 +20,7 @@ test("auto review approves when candidate_x is above threshold", () => {
   });
 
   assert.equal(result.decision, REVIEW_APPROVED);
+  assert.match(result.comment, /auto-approved/);
 });
 
 test("auto review rejects when candidate_x is not above threshold", () => {
@@ -40,4 +41,5 @@ test("auto review rejects when candidate_x is not above threshold", () => {
 
   assert.equal(result.decision, REVIEW_REJECTED);
   assert.equal(result.next_x, 5.1);
+  assert.match(result.comment, /auto-rejected/);
 });

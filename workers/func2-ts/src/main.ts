@@ -87,6 +87,10 @@ function toOptionalNumber(value: unknown): number | undefined {
   return Number.isNaN(numeric) ? undefined : Number(numeric.toFixed(2));
 }
 
+function toOptionalString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 function requireTaskIdentity(task: Task): { taskId: string; workflowId: string } {
   if (!task.taskId) {
     throw new Error("taskId is required");
@@ -151,11 +155,21 @@ function buildOutput(task: Task) {
   const input = task.inputData ?? {};
   const result = computeFunc2({ x: input.x });
   const { taskId, workflowId } = requireTaskIdentity(task);
+  const cnCaseTitle = toOptionalString(input.cn_case_title);
+  const cnCaseBody = toOptionalString(input.cn_case_body);
+  const cnKeywords = toOptionalString(input.cn_keywords);
+  const cnReviewComment = toOptionalString(input.cn_review_comment);
+  const comment = typeof input.comment === "string" ? input.comment : "";
 
   return {
     ...result,
     attempt: Number(input.attempt ?? 0),
-    comment: typeof input.comment === "string" ? input.comment : "",
+    cn_case_body: cnCaseBody,
+    cn_case_title: cnCaseTitle,
+    cn_final_summary: `${cnCaseTitle} 已完成，关键词=${cnKeywords}，review=${cnReviewComment || comment}，final_y=${result.y.toFixed(2)} / searchable summary`,
+    cn_keywords: cnKeywords,
+    cn_review_comment: cnReviewComment,
+    comment,
     correlation_id: typeof input.correlation_id === "string" ? input.correlation_id : "",
     initial_x: toOptionalNumber(input.initial_x),
     initial_x_tag: typeof input.initial_x_tag === "string" ? input.initial_x_tag : "",
@@ -187,6 +201,7 @@ async function completeTask(task: Task): Promise<TaskResult> {
       ctx?.addLog(`func2 task started: taskId=${taskId}`);
       logEvent("INFO", "func2 task started", {
         attempt: Number(input.attempt ?? 0),
+        cn_case_title: toOptionalString(input.cn_case_title) || undefined,
         correlation_id: typeof input.correlation_id === "string" ? input.correlation_id : undefined,
         initial_x: toOptionalNumber(input.initial_x),
         initial_x_tag: typeof input.initial_x_tag === "string" ? input.initial_x_tag : undefined,
@@ -223,6 +238,7 @@ async function completeTask(task: Task): Promise<TaskResult> {
         durationHistogram.observe(durationMs / 1000);
         ctx?.addLog(`func2 completed: y=${outputData.y}`);
         logEvent("INFO", "func2 task completed", {
+          cn_case_title: outputData.cn_case_title,
           correlation_id: outputData.correlation_id,
           duration_ms: durationMs,
           initial_x: outputData.initial_x,
@@ -245,6 +261,7 @@ async function completeTask(task: Task): Promise<TaskResult> {
         const reason = error instanceof Error ? error.message : String(error);
         ctx?.addLog(`func2 failed: ${reason}`);
         logEvent("ERROR", "func2 task failed", {
+          cn_case_title: toOptionalString(input.cn_case_title) || undefined,
           correlation_id: typeof input.correlation_id === "string" ? input.correlation_id : undefined,
           error: reason,
           initial_x: toOptionalNumber(input.initial_x),
@@ -256,6 +273,10 @@ async function completeTask(task: Task): Promise<TaskResult> {
 
         return {
           outputData: {
+            cn_case_body: toOptionalString(input.cn_case_body),
+            cn_case_title: toOptionalString(input.cn_case_title),
+            cn_keywords: toOptionalString(input.cn_keywords),
+            cn_review_comment: toOptionalString(input.cn_review_comment),
             correlation_id: typeof input.correlation_id === "string" ? input.correlation_id : "",
             initial_x: toOptionalNumber(input.initial_x),
             initial_x_tag: typeof input.initial_x_tag === "string" ? input.initial_x_tag : "",

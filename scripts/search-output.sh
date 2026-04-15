@@ -34,9 +34,24 @@ response="$(curl -fsS --get \
   --data-urlencode "start=0" \
   "${CONDUCTOR_SERVER_URL}/workflow/search")"
 
-echo "${response}" | jq --argjson threshold "${threshold}" '
+workflow_ids="$(echo "${response}" | jq -r '(.results // [])[] | .workflowId // empty')"
+
+if [[ -z "${workflow_ids}" ]]; then
+  echo '[]'
+  exit 0
+fi
+
+details_json="$(
+  while IFS= read -r workflow_id; do
+    [[ -z "${workflow_id}" ]] && continue
+    curl -fsS "${CONDUCTOR_SERVER_URL}/workflow/${workflow_id}"
+    printf '\n'
+  done <<< "${workflow_ids}"
+)"
+
+printf '%s\n' "${details_json}" | jq -s --argjson threshold "${threshold}" '
   [
-    (.results // [])[]
+    .[]
     | . as $workflow
     | (
         if ($workflow.output | type) == "string" then
@@ -48,11 +63,14 @@ echo "${response}" | jq --argjson threshold "${threshold}" '
     | ($output.y // 0 | tonumber? // 0) as $y
     | select($y > $threshold)
     | {
-        workflowId: ($workflow.workflowId // $workflow.workflowId),
+        workflowId: ($workflow.workflowId // ""),
         status: $workflow.status,
         correlation_id: ($workflow.correlationId // $output.correlation_id // ""),
         initial_x: ($output.initial_x // null),
         initial_x_tag: ($output.initial_x_tag // ""),
+        cn_case_title: ($output.cn_case_title // ""),
+        cn_keywords: ($output.cn_keywords // ""),
+        cn_final_summary: ($output.cn_final_summary // ""),
         y: $y,
         y_tag: ($output.y_tag // ""),
         comment: ($output.comment // ""),

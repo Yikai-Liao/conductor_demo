@@ -20,6 +20,7 @@ fi
 ensure_runtime_dirs
 
 "${SCRIPT_DIR}/start-host-consul.sh"
+"${SCRIPT_DIR}/start-host-proxies.sh"
 
 cd "${ROOT_DIR}"
 docker compose up -d --build --remove-orphans --force-recreate
@@ -30,5 +31,6 @@ wait_for_http "Grafana" "${GRAFANA_URL}/api/health"
 
 "${SCRIPT_DIR}/register-infra-services.sh"
 "${SCRIPT_DIR}/start-host-nomad.sh"
+"${SCRIPT_DIR}/start-host-proxies.sh"
 
 echo "基础设施已启动"

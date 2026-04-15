@@ -1,4 +1,4 @@
-ARG DOCKER_IMAGE_PREFIX=docker.randallanjie.com
+ARG DOCKER_IMAGE_PREFIX=docker.io
 ARG CONDUCTOR_VERSION=3.22.3
 
 FROM ${DOCKER_IMAGE_PREFIX}/library/node:24.14.1-bookworm-slim AS builder
@@ -7,7 +7,7 @@ ARG CONDUCTOR_VERSION
 
 WORKDIR /src
 
-COPY generated/conductor-ui/conductor-source.tar.gz /tmp/conductor-source.tar.gz
+COPY generated/conductor-source/conductor-source.tar.gz /tmp/conductor-source.tar.gz
 
 RUN tar -xzf /tmp/conductor-source.tar.gz --strip-components=1 \
     && rm -f /tmp/conductor-source.tar.gz

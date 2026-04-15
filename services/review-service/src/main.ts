@@ -222,12 +222,19 @@ async function processDecision(
     async () => {
       const correlationId =
         typeof taskInput.correlation_id === "string" ? taskInput.correlation_id : undefined;
+      const cnCaseBody =
+        typeof taskInput.cn_case_body === "string" ? taskInput.cn_case_body : undefined;
+      const cnCaseTitle =
+        typeof taskInput.cn_case_title === "string" ? taskInput.cn_case_title : undefined;
+      const cnKeywords =
+        typeof taskInput.cn_keywords === "string" ? taskInput.cn_keywords : undefined;
       const initialX = toOptionalNumber(taskInput.initial_x);
       const initialXTag =
         typeof taskInput.initial_x_tag === "string" ? taskInput.initial_x_tag : undefined;
 
       logEvent("INFO", "review started", {
         candidate_x: toOptionalNumber(taskInput.candidate_x),
+        cn_case_title: cnCaseTitle,
         correlation_id: correlationId,
         initial_x: initialX,
         initial_x_tag: initialXTag,
@@ -252,6 +259,10 @@ async function processDecision(
       const processedAt = new Date().toISOString();
       const outputData = {
         ...decision,
+        cn_case_body: cnCaseBody ?? "",
+        cn_case_title: cnCaseTitle ?? "",
+        cn_keywords: cnKeywords ?? "",
+        cn_review_comment: decision.comment,
         correlation_id: correlationId ?? "",
         initial_x: initialX,
         initial_x_tag: initialXTag ?? "",
@@ -279,6 +290,7 @@ async function processDecision(
       });
       durationHistogram.observe(durationMs / 1000);
       logEvent("INFO", "review completed", {
+        cn_case_title: cnCaseTitle,
         decision: decision.decision,
         delay_ms: delayMs,
         initial_x: initialX,
@@ -291,6 +303,10 @@ async function processDecision(
 
       return {
         comment: decision.comment,
+        cn_case_body: cnCaseBody ?? "",
+        cn_case_title: cnCaseTitle ?? "",
+        cn_keywords: cnKeywords ?? "",
+        cn_review_comment: decision.comment,
         correlation_id: correlationId ?? "",
         decision: decision.decision,
         delay_ms: delayMs,

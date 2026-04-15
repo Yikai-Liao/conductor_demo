@@ -7,6 +7,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 load_env
 
 "${SCRIPT_DIR}/build-images.sh"
+"${SCRIPT_DIR}/bootstrap-opensearch.sh" --reset
 "${SCRIPT_DIR}/init-control-plane.sh"
 "${SCRIPT_DIR}/nomad-submit.sh"
 

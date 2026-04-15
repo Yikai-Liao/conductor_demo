@@ -1,4 +1,4 @@
-ARG DOCKER_IMAGE_PREFIX=docker.randallanjie.com
+ARG DOCKER_IMAGE_PREFIX=docker.io
 FROM ${DOCKER_IMAGE_PREFIX}/library/node:24.14.1-bookworm-slim AS build
 
 WORKDIR /app

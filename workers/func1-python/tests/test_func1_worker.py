@@ -12,10 +12,11 @@ def test_first_round_without_comment() -> None:
 
 
 def test_reject_comment_round_trip() -> None:
-    result = compute_candidate_x(current_x=3.2, comments="数值不符合，打回", attempt=2)
+    comment = "资料不完整，退回补充 / rejected"
+    result = compute_candidate_x(current_x=3.2, comments=comment, attempt=2)
 
     assert result["candidate_x"] == 4.2
-    assert result["comment_in"] == "数值不符合，打回"
+    assert result["comment_in"] == comment
     assert result["attempt"] == 2
 
 

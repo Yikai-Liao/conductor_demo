@@ -93,7 +93,11 @@ if [[ "${wait_for_completion}" == "1" ]]; then
     output
   }'
 else
+  cn_case_title="$(demo_case_title "${x}")"
+  cn_keywords="$(demo_case_keywords "${x}")"
   jq -nc \
+    --arg cn_case_title "${cn_case_title}" \
+    --arg cn_keywords "${cn_keywords}" \
     --arg correlation_id "${correlation_id}" \
     --arg review_mode "${review_mode}" \
     --arg workflowId "${workflow_id}" \
@@ -101,6 +105,8 @@ else
     '{
       workflowId: $workflowId,
       x: $x,
+      cn_case_title: $cn_case_title,
+      cn_keywords: $cn_keywords,
       correlation_id: $correlation_id,
       review_mode: $review_mode
     }'

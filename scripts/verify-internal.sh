@@ -14,6 +14,7 @@ wait_for_consul_service "conductor-api" >/dev/null
 wait_for_consul_service "conductor-ui" >/dev/null
 wait_for_consul_service "func1-python" >/dev/null
 wait_for_consul_service "func2-ts" >/dev/null
+wait_for_consul_service "opensearch" >/dev/null
 wait_for_consul_service "review-service" >/dev/null
 
 wait_for_http "Nomad API" "${NOMAD_ADDR}/v1/status/leader"
@@ -22,6 +23,9 @@ curl -fsS "${NOMAD_ADDR}/v1/job/conductor-ui" >/dev/null
 curl -fsS "${NOMAD_ADDR}/v1/job/func1-python" >/dev/null
 curl -fsS "${NOMAD_ADDR}/v1/job/func2-ts" >/dev/null
 curl -fsS "${NOMAD_ADDR}/v1/job/review-service" >/dev/null
+curl -fsS "${OPENSEARCH_INTERNAL_URL}/_cluster/health?wait_for_status=yellow&timeout=5s" >/dev/null
+curl -fsS "${OPENSEARCH_INTERNAL_URL}/_cat/plugins?format=json" | jq -e 'any(.[]; .component == "analysis-icu")' >/dev/null
+curl -fsS "${OPENSEARCH_INTERNAL_URL}/_cat/indices/conductor*?format=json" | jq -e 'any(.[]; .index == "conductor_workflow") and any(.[]; .index == "conductor_task")' >/dev/null
 
 wait_for_contains \
   "func1 task metrics" \

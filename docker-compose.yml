@@ -1,11 +1,11 @@
 x-build-args: &build_args
-  DOCKER_IMAGE_PREFIX: ${DOCKER_IMAGE_PREFIX:-docker.randallanjie.com}
+  DOCKER_IMAGE_PREFIX: ${DOCKER_IMAGE_PREFIX:-docker.io}
 
 name: ${COMPOSE_PROJECT_NAME:-conductor-demo}
 
 services:
   vault:
-    image: ${DOCKER_IMAGE_PREFIX:-docker.randallanjie.com}/hashicorp/vault:${VAULT_VERSION:-1.21.4}
+    image: ${DOCKER_IMAGE_PREFIX:-docker.io}/hashicorp/vault:${VAULT_VERSION:-1.21.4}
     entrypoint: ["vault"]
     command:
       - server
@@ -24,7 +24,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: ${DOCKER_IMAGE_PREFIX:-docker.randallanjie.com}/library/postgres:${POSTGRES_VERSION:-18.3-alpine}
+    image: ${DOCKER_IMAGE_PREFIX:-docker.io}/library/postgres:${POSTGRES_VERSION:-18.3-alpine}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-conductor}
       POSTGRES_USER: ${POSTGRES_USER:-conductor}
@@ -40,8 +40,32 @@ services:
       - demo
     restart: unless-stopped
 
+  opensearch:
+    build:
+      context: .
+      dockerfile: docker/opensearch/Dockerfile
+      args:
+        <<: *build_args
+        OPENSEARCH_VERSION: ${OPENSEARCH_VERSION:-2.19.1}
+    environment:
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-ConductorDemo123!}
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+      discovery.type: single-node
+      plugins.security.disabled: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    networks:
+      - demo
+    restart: unless-stopped
+
   otel-collector:
-    image: ${DOCKER_IMAGE_PREFIX:-docker.randallanjie.com}/otel/opentelemetry-collector-contrib:${OTEL_COLLECTOR_VERSION:-0.149.0}
+    image: ${DOCKER_IMAGE_PREFIX:-docker.io}/otel/opentelemetry-collector-contrib:${OTEL_COLLECTOR_VERSION:-0.149.0}
     command: ["--config=/etc/otelcol-contrib/config.yaml"]
     volumes:
       - ./config/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
@@ -54,7 +78,7 @@ services:
     restart: unless-stopped
 
   vmagent:
-    image: ${DOCKER_IMAGE_PREFIX:-docker.randallanjie.com}/victoriametrics/vmagent:${VICTORIA_METRICS_VERSION:-v1.139.0}
+    image: ${DOCKER_IMAGE_PREFIX:-docker.io}/victoriametrics/vmagent:${VICTORIA_METRICS_VERSION:-v1.139.0}
     command:
       - --promscrape.config=/etc/vmagent/prometheus.yml
       - --remoteWrite.url=http://victoria-metrics:8428/api/v1/write
@@ -73,7 +97,7 @@ services:
     restart: unless-stopped
 
   victoria-metrics:
-    image: ${DOCKER_IMAGE_PREFIX:-docker.randallanjie.com}/victoriametrics/victoria-metrics:${VICTORIA_METRICS_VERSION:-v1.139.0}
+    image: ${DOCKER_IMAGE_PREFIX:-docker.io}/victoriametrics/victoria-metrics:${VICTORIA_METRICS_VERSION:-v1.139.0}
     command:
       - --storageDataPath=/victoria-metrics-data
       - --httpListenAddr=:8428
@@ -86,7 +110,7 @@ services:
     restart: unless-stopped
 
   victoria-logs:
-    image: ${DOCKER_IMAGE_PREFIX:-docker.randallanjie.com}/victoriametrics/victoria-logs:${VICTORIA_LOGS_VERSION:-v1.24.0-victorialogs}
+    image: ${DOCKER_IMAGE_PREFIX:-docker.io}/victoriametrics/victoria-logs:${VICTORIA_LOGS_VERSION:-v1.24.0-victorialogs}
     command:
       - --storageDataPath=/victoria-logs-data
       - --httpListenAddr=:9428
@@ -99,7 +123,7 @@ services:
     restart: unless-stopped
 
   vector:
-    image: ${DOCKER_IMAGE_PREFIX:-docker.randallanjie.com}/timberio/vector:${VECTOR_VERSION:-0.54.0-debian}
+    image: ${DOCKER_IMAGE_PREFIX:-docker.io}/timberio/vector:${VECTOR_VERSION:-0.54.0-debian}
     command: ["--config", "/etc/vector/vector.yaml"]
     depends_on:
       - victoria-logs
@@ -173,14 +197,15 @@ services:
       CONDUCTOR_SERVER_URL: http://gateway:8080/api
       CONDUCTOR_UI_URL: http://gateway:8080
       DOCKER_NETWORK: ${DOCKER_NETWORK:-conductor-demo}
-      FUNC1_IMAGE: ${FUNC1_IMAGE:-docker.randallanjie.com/conductor-demo/func1-python:dev}
-      FUNC2_IMAGE: ${FUNC2_IMAGE:-docker.randallanjie.com/conductor-demo/func2-ts:dev}
+      FUNC1_IMAGE: ${FUNC1_IMAGE:-docker.io/conductor-demo/func1-python:dev}
+      FUNC2_IMAGE: ${FUNC2_IMAGE:-docker.io/conductor-demo/func2-ts:dev}
       GATEWAY_URL: http://gateway:8080
       GRAFANA_URL: http://grafana:3000
       NOMAD_ADDR: http://host.docker.internal:4646
+      OPENSEARCH_INTERNAL_URL: http://opensearch:9200
       REVIEW_API_TOKEN: ${REVIEW_API_TOKEN:-review-demo-token}
       REVIEW_SERVICE_URL: http://gateway:8080/review
-      REVIEW_SERVICE_IMAGE: ${REVIEW_SERVICE_IMAGE:-docker.randallanjie.com/conductor-demo/review-service:dev}
+      REVIEW_SERVICE_IMAGE: ${REVIEW_SERVICE_IMAGE:-docker.io/conductor-demo/review-service:dev}
       VAULT_ADDR: http://vault:8200
       VAULT_TOKEN: ${VAULT_TOKEN:-}
       VM_INTERNAL_URL: http://victoria-metrics:8428
@@ -203,6 +228,7 @@ networks:
 
 volumes:
   grafana_data:
+  opensearch_data:
   postgres_data:
   vault_data:
   vector_data:

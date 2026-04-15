@@ -159,6 +159,9 @@ def build_completion_output(task: Task) -> dict[str, object]:
 
     return {
         **result,
+        "cn_case_body": as_string(input_data.get("cn_case_body")),
+        "cn_case_title": as_string(input_data.get("cn_case_title")),
+        "cn_keywords": as_string(input_data.get("cn_keywords")),
         **current_trace_fields(),
         "correlation_id": as_string(input_data.get("correlation_id")),
         "initial_x": input_data.get("initial_x"),
@@ -192,6 +195,7 @@ def complete_task(task: Task) -> None:
             "INFO",
             "func1 task started",
             attempt=input_data.get("attempt"),
+            cn_case_title=as_string(input_data.get("cn_case_title")),
             comment_in=input_data.get("comments", ""),
             correlation_id=as_string(input_data.get("correlation_id")),
             initial_x=input_data.get("initial_x"),
@@ -227,6 +231,7 @@ def complete_task(task: Task) -> None:
                 "INFO",
                 "func1 task completed",
                 candidate_x=output_data["candidate_x"],
+                cn_case_title=output_data["cn_case_title"],
                 comment_in=output_data["comment_in"],
                 correlation_id=output_data["correlation_id"],
                 duration_ms=elapsed_ms,
@@ -258,6 +263,7 @@ def complete_task(task: Task) -> None:
             log_event(
                 "ERROR",
                 "func1 task failed",
+                cn_case_title=as_string(input_data.get("cn_case_title")),
                 correlation_id=as_string(input_data.get("correlation_id")),
                 error=str(exc),
                 initial_x=input_data.get("initial_x"),

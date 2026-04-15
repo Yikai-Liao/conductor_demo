@@ -39,9 +39,20 @@ submit_job() {
 
 restart_job() {
   local name="$1"
+  local output
 
-  nomad job restart -yes -on-error=fail "${name}" >/dev/null
-  echo "Nomad job 已重启: ${name}"
+  if output="$(nomad job restart -yes -on-error=fail "${name}" 2>&1)"; then
+    echo "Nomad job 已重启: ${name}"
+    return 0
+  fi
+
+  if [[ "${output}" == *'is "running"'* ]]; then
+    echo "Nomad job 跳过重启（deployment 进行中）: ${name}"
+    return 0
+  fi
+
+  echo "${output}" >&2
+  return 1
 }
 
 wait_for_http "Nomad API" "${NOMAD_ADDR}/v1/status/leader"

@@ -15,6 +15,8 @@ export CONSUL_HTTP_ADDR
 export NOMAD_ADDR
 export VAULT_ADDR
 
+"${SCRIPT_DIR}/start-host-proxies.sh"
+
 "${SCRIPT_DIR}/init-vault.sh"
 load_env
 
@@ -27,6 +29,7 @@ if ! docker image inspect "${CONDUCTOR_UI_IMAGE}" "${FUNC1_IMAGE}" "${FUNC2_IMAG
 fi
 
 "${SCRIPT_DIR}/register-infra-services.sh"
+"${SCRIPT_DIR}/bootstrap-opensearch.sh"
 
 vault_read_status() {
   local path="$1"

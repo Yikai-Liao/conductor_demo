@@ -23,6 +23,7 @@ test("approve decision keeps next_x unchanged", () => {
 
   assert.equal(result.decision, REVIEW_APPROVED);
   assert.equal(result.next_x, 4.2);
+  assert.match(result.comment, /approved/);
 });
 
 test("reject decision returns rejection with comment", () => {
@@ -36,5 +37,5 @@ test("reject decision returns rejection with comment", () => {
 
   assert.equal(result.decision, REVIEW_REJECTED);
   assert.equal(result.next_x, 4.3);
-  assert.match(result.comment, /打回/);
+  assert.match(result.comment, /rejected/);
 });

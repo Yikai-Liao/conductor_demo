@@ -1,0 +1,136 @@
+{
+  "settings": {
+    "index": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    },
+    "analysis": {
+      "filter": {
+        "conductor_cjk_bigram": {
+          "type": "cjk_bigram",
+          "output_unigrams": true
+        }
+      },
+      "analyzer": {
+        "conductor_cjk_recall": {
+          "type": "custom",
+          "tokenizer": "standard",
+          "filter": [
+            "cjk_width",
+            "lowercase",
+            "conductor_cjk_bigram"
+          ]
+        }
+      },
+      "normalizer": {
+        "conductor_lowercase": {
+          "type": "custom",
+          "filter": [
+            "lowercase"
+          ]
+        }
+      }
+    }
+  },
+  "mappings": {
+    "properties": {
+      "correlationId": {
+        "type": "keyword",
+        "index": true,
+        "doc_values": true
+      },
+      "endTime": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis",
+        "doc_values": true
+      },
+      "executionTime": {
+        "type": "long",
+        "doc_values": true
+      },
+      "failedReferenceTaskNames": {
+        "type": "text",
+        "index": false
+      },
+      "input": {
+        "type": "text",
+        "analyzer": "icu_analyzer",
+        "fields": {
+          "recall": {
+            "type": "text",
+            "analyzer": "conductor_cjk_recall"
+          },
+          "exact": {
+            "type": "keyword",
+            "normalizer": "conductor_lowercase"
+          }
+        }
+      },
+      "output": {
+        "type": "text",
+        "analyzer": "icu_analyzer",
+        "fields": {
+          "recall": {
+            "type": "text",
+            "analyzer": "conductor_cjk_recall"
+          },
+          "exact": {
+            "type": "keyword",
+            "normalizer": "conductor_lowercase"
+          }
+        }
+      },
+      "reasonForIncompletion": {
+        "type": "text",
+        "analyzer": "icu_analyzer",
+        "fields": {
+          "recall": {
+            "type": "text",
+            "analyzer": "conductor_cjk_recall"
+          },
+          "exact": {
+            "type": "keyword",
+            "normalizer": "conductor_lowercase"
+          }
+        }
+      },
+      "startTime": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis",
+        "doc_values": true
+      },
+      "status": {
+        "type": "keyword",
+        "index": true,
+        "doc_values": true
+      },
+      "updateTime": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis",
+        "doc_values": true
+      },
+      "version": {
+        "type": "long",
+        "doc_values": true
+      },
+      "workflowId": {
+        "type": "keyword",
+        "index": true,
+        "doc_values": true
+      },
+      "workflowType": {
+        "type": "keyword",
+        "index": true,
+        "doc_values": true
+      },
+      "rawJSON": {
+        "type": "text",
+        "index": false
+      },
+      "event": {
+        "type": "keyword",
+        "index": true
+      }
+    }
+  }
+}

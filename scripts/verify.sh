@@ -37,12 +37,10 @@ wait_for_contains \
   "http://${GRAFANA_ADMIN_USER:-admin}:${GRAFANA_ADMIN_PASSWORD:-admin}@localhost:${GRAFANA_PORT:-13000}/api/dashboards/uid/conductor-human-review-demo" \
   "\"uid\":\"conductor-human-review-demo\""
 
-if ! "${SCRIPT_DIR}/prove-search.sh" >/tmp/conductor-search-proof.json 2>/tmp/conductor-search-proof.err; then
-  echo "搜索 proof 未通过，自动回退到 CLI fallback"
-  "${SCRIPT_DIR}/search-output.sh" --threshold "${SEARCH_THRESHOLD}" >/tmp/conductor-search-fallback.json
-fi
+"${SCRIPT_DIR}/prove-search.sh" >/tmp/conductor-search-proof.json
+"${SCRIPT_DIR}/search-output.sh" --threshold "${SEARCH_THRESHOLD}" >/tmp/conductor-search-output.json
 
 echo "验证通过:"
 echo "  单条 workflow 结果: /tmp/conductor-run-one.json"
 echo "  Search proof 成功 : /tmp/conductor-search-proof.json"
-echo "  Search fallback   : /tmp/conductor-search-fallback.json"
+echo "  Search output     : /tmp/conductor-search-output.json"

@@ -1,0 +1,62 @@
+{
+  "index_patterns": ["*task*log*"],
+  "priority": 1,
+  "template": {
+    "settings": {
+      "refresh_interval": "1s",
+      "analysis": {
+        "filter": {
+          "conductor_cjk_bigram": {
+            "type": "cjk_bigram",
+            "output_unigrams": true
+          }
+        },
+        "analyzer": {
+          "conductor_cjk_recall": {
+            "type": "custom",
+            "tokenizer": "standard",
+            "filter": [
+              "cjk_width",
+              "lowercase",
+              "conductor_cjk_bigram"
+            ]
+          }
+        },
+        "normalizer": {
+          "conductor_lowercase": {
+            "type": "custom",
+            "filter": [
+              "lowercase"
+            ]
+          }
+        }
+      }
+    },
+    "mappings": {
+      "properties": {
+        "createdTime": {
+          "type": "long"
+        },
+        "log": {
+          "type": "text",
+          "analyzer": "icu_analyzer",
+          "fields": {
+            "recall": {
+              "type": "text",
+              "analyzer": "conductor_cjk_recall"
+            },
+            "exact": {
+              "type": "keyword",
+              "normalizer": "conductor_lowercase"
+            }
+          }
+        },
+        "taskId": {
+          "type": "keyword",
+          "index": true
+        }
+      }
+    },
+    "aliases": {}
+  }
+}

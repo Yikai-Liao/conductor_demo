@@ -14,6 +14,7 @@ load_env() {
     GATEWAY_URL
     GRAFANA_URL
     NOMAD_ADDR
+    OPENSEARCH_INTERNAL_URL
     REVIEW_SERVICE_URL
     VAULT_ADDR
     VAULT_TOKEN
@@ -51,12 +52,13 @@ load_env() {
   : "${DOCKER_NETWORK:=conductor-demo}"
   : "${PUBLIC_BIND_ADDR:=0.0.0.0}"
   : "${LOCAL_BIND_ADDR:=127.0.0.1}"
-  : "${DOCKER_IMAGE_PREFIX:=docker.randallanjie.com}"
+  : "${DOCKER_IMAGE_PREFIX:=docker.io}"
   : "${GATEWAY_URL:=http://localhost:18080}"
   : "${CONDUCTOR_SERVER_URL:=${GATEWAY_URL}/api}"
   : "${CONDUCTOR_UI_URL:=${GATEWAY_URL}}"
   : "${REVIEW_SERVICE_URL:=${GATEWAY_URL}/review}"
   : "${NOMAD_ADDR:=http://127.0.0.1:4646}"
+  : "${OPENSEARCH_INTERNAL_URL:=http://opensearch:9200}"
   : "${CONSUL_HTTP_ADDR:=http://127.0.0.1:8500}"
   : "${VAULT_ADDR:=http://localhost:18200}"
   : "${GRAFANA_URL:=http://localhost:13000}"
@@ -75,12 +77,15 @@ load_env() {
   : "${AUTO_REVIEW_CONCURRENCY:=32}"
   : "${SEARCH_THRESHOLD:=10.1}"
   : "${SEARCH_PAGE_SIZE:=1000}"
-  : "${SEARCH_PROOF_FREETEXT:=output.y:>10.1}"
+  : "${SEARCH_PROOF_FREETEXT:=仓库巡检}"
+  : "${SEARCH_PROOF_MAX_ATTEMPTS:=15}"
+  : "${SEARCH_PROOF_POLL_SECONDS:=2}"
   : "${CONDUCTOR_VERSION:=3.22.3}"
+  : "${OPENSEARCH_VERSION:=2.19.1}"
   : "${POSTGRES_DB:=conductor}"
   : "${POSTGRES_USER:=conductor}"
   : "${POSTGRES_PASSWORD:=conductor}"
-  : "${CONDUCTOR_IMAGE:=${DOCKER_IMAGE_PREFIX}/conductoross/conductor:${CONDUCTOR_VERSION}}"
+  : "${CONDUCTOR_IMAGE:=${DOCKER_IMAGE_PREFIX}/conductor-demo/conductor-server:dev}"
   : "${CONDUCTOR_UI_IMAGE:=${DOCKER_IMAGE_PREFIX}/conductor-demo/conductor-ui:dev}"
   : "${FUNC1_IMAGE:=${DOCKER_IMAGE_PREFIX}/conductor-demo/func1-python:dev}"
   : "${FUNC2_IMAGE:=${DOCKER_IMAGE_PREFIX}/conductor-demo/func2-ts:dev}"
@@ -174,6 +179,31 @@ wait_for_consul_service() {
 
 toolbox_exec() {
   docker compose exec -T toolbox "$@"
+}
+
+toolbox_http_get() {
+  local url="$1"
+  toolbox_exec curl -fsS "${url}"
+}
+
+toolbox_wait_for_http() {
+  local name="$1"
+  local url="$2"
+  local max_attempts="${3:-60}"
+  local attempt=1
+
+  until toolbox_exec curl -fsS "${url}" >/dev/null 2>&1; do
+    if [[ "${attempt}" -ge "${max_attempts}" ]]; then
+      echo "等待 ${name} 超时: ${url}" >&2
+      exit 1
+    fi
+    sleep 2
+    attempt=$((attempt + 1))
+  done
+}
+
+docker_host_gateway_addr() {
+  docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}'
 }
 
 render_config_template() {
@@ -275,6 +305,33 @@ build_default_correlation_id() {
   printf '%s-x%s-%s' "${scope}" "$(format_initial_x_token "${x}")" "${suffix}"
 }
 
+demo_case_title() {
+  local x="$1"
+  if [[ "${x}" == "2" || "${x}" == 2.* ]]; then
+    printf '合同复核'
+  else
+    printf '仓库巡检'
+  fi
+}
+
+demo_case_body() {
+  local x="$1"
+  if [[ "${x}" == "2" || "${x}" == 2.* ]]; then
+    printf '供应商合同复核，需要确认付款节点、交付 SLA 和 appendix scan / bilingual clause 一致。'
+  else
+    printf '华东园区仓库巡检，需要核对入库托盘标签、破损照片和 temperature log / English checklist。'
+  fi
+}
+
+demo_case_keywords() {
+  local x="$1"
+  if [[ "${x}" == "2" || "${x}" == 2.* ]]; then
+    printf '合同复核 付款节点 appendix scan bilingual clause'
+  else
+    printf '仓库巡检 入库托盘 破损照片 temperature log'
+  fi
+}
+
 pick_default_initial_x() {
   local state_dir="${ROOT_DIR}/runtime/cli-state"
   local state_file="${state_dir}/last-initial-x"
@@ -304,11 +361,20 @@ start_workflow_payload() {
   local bulk_seed="$5"
   local approval_threshold="$6"
   local initial_x_tag_value
+  local cn_case_title_value
+  local cn_case_body_value
+  local cn_keywords_value
 
   initial_x_tag_value="$(initial_x_tag "${x}")"
+  cn_case_title_value="$(demo_case_title "${x}")"
+  cn_case_body_value="$(demo_case_body "${x}")"
+  cn_keywords_value="$(demo_case_keywords "${x}")"
 
   jq -nc \
     --arg correlation_id "${correlation_id}" \
+    --arg cn_case_body "${cn_case_body_value}" \
+    --arg cn_case_title "${cn_case_title_value}" \
+    --arg cn_keywords "${cn_keywords_value}" \
     --arg initial_x_tag "${initial_x_tag_value}" \
     --arg review_mode "${review_mode}" \
     --arg bulk_seed "${bulk_seed}" \
@@ -321,6 +387,9 @@ start_workflow_payload() {
       correlationId: $correlation_id,
       input: {
         x: $x,
+        cn_case_body: $cn_case_body,
+        cn_case_title: $cn_case_title,
+        cn_keywords: $cn_keywords,
         correlation_id: $correlation_id,
         initial_x_tag: $initial_x_tag,
         auto_review: $auto_review,

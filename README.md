@@ -1,6 +1,6 @@
 # conductor-demo
 
-`conductor-demo` 是一个本地可运行的人机协同异步工作流 demo。它用 `docker compose` 只拉起基础设施，用宿主机 `Consul` / `Nomad` 做服务发现与作业调度，用 `Vault` 分发密钥，并通过 `Conductor OSS + PostgreSQL` 跑通一条 `func1 -> HUMAN review -> func2` 的最小闭环。
+`conductor-demo` 是一个本地可运行的人机协同异步工作流 demo。它用 `docker compose` 只拉起基础设施，用宿主机 `Consul` / `Nomad` 做服务发现与作业调度，用 `Vault` 分发密钥，并通过 `Conductor OSS + PostgreSQL + OpenSearch` 跑通一条 `func1 -> HUMAN review -> func2` 的最小闭环。
 
 这个仓库的目标不是“把容器都拉起来”，而是给 demo 操作者一条固定、可重复的演示路径：启动环境、提交 Nomad jobs、跑单条工作流、做人工审批、批量触发工作流、查看执行结果和观测数据。
 
@@ -13,6 +13,7 @@
 - `docker compose` 只负责基础设施和网络分区模拟；业务组件通过 `Nomad jobs` 运行。
 - 服务发现走 `Consul`，配置分发走 `Nomad template + Consul KV`，密钥分发走 `Vault`。
 - 工作流由 Python `func1`、TypeScript `func2`、Node.js/TypeScript `review-service` 组成。
+- Conductor 内置 UI 和 `/workflow/search` 直接支持中文关键词检索，索引由仓库内的 OpenSearch bootstrap 层预建。
 - 默认只暴露操作者需要的宿主机入口；`PostgreSQL`、worker、`review-service` 容器端口、OTel、Victoria 组件都保持内部可见。
 - `workflowId`、`taskId`、`trace_id` 贯穿 worker、review、Conductor 输出、日志和指标。
 - 内置启动、注册、单跑、批量、验收脚本，适合做固定流程演示。
@@ -24,6 +25,7 @@
 - Docker 与 Docker Compose
 - 宿主机已安装 `consul`
 - 宿主机已安装 `nomad`
+- 宿主机已安装 `socat`
 - `curl`
 - `jq`
 
@@ -85,6 +87,11 @@ loginctl enable-linger "$USER"
 - `Gateway`、`Grafana`、`VictoriaMetrics`、`VictoriaLogs`、`OTel Collector`、`Vector API` 绑定在 `${PUBLIC_BIND_ADDR:-0.0.0.0}`，可用于局域网访问
 - `Vault`、`Nomad`、`Consul` 仅绑定本机回环地址；容器侧通过 Docker host-gateway 代理访问，不直接暴露到局域网
 
+补充说明：
+
+- [scripts/start-host-proxies.sh](scripts/start-host-proxies.sh) 会在宿主机用 `socat` 打开到 Docker bridge gateway 的 `4646/8500` 代理
+- 这样 `Vault`、`Gateway` 和 `toolbox` 容器能访问宿主机上的 `Nomad` / `Consul`，但宿主机进程本身仍然只监听 `127.0.0.1`
+
 可观测系统直接访问方式：
 
 - VictoriaMetrics:
@@ -103,7 +110,7 @@ loginctl enable-linger "$USER"
   `http://localhost:8686`
   用于查看 Vector API 和健康状态
 
-构建阶段不再依赖代理。基础镜像统一走 `docker.randallanjie.com`，Python / Node / Alpine / Debian 包下载统一走镜像源。
+默认 Docker 基础镜像改成 `docker.io`。Python / Node / Alpine / Debian 的现有包仓库设置保持不变。
 
 ## 使用
 
@@ -147,10 +154,17 @@ curl -s "http://localhost:18080/api/workflow/${workflow_id}" | jq '{workflowId,s
 {
   "workflowId": "...",
   "x": 1,
+  "cn_case_title": "仓库巡检",
+  "cn_keywords": "仓库巡检 入库托盘 破损照片 temperature log",
   "correlation_id": "run-one-x1-...",
   "review_mode": "auto"
 }
 ```
+
+`run-one.sh` 会根据初始值在两组中文样例之间切换：
+
+- `x=1` 默认写入 `仓库巡检`
+- `x=2` 默认写入 `合同复核`
 
 ## Workflow 编排
 
@@ -172,13 +186,14 @@ curl -s "http://localhost:18080/api/workflow/${workflow_id}" | jq '{workflowId,s
 
 运行面分三层：
 
-- `docker compose`：`vault`、`postgres`、`gateway`、`otel-collector`、`vector`、`victoria-metrics`、`victoria-logs`、`grafana`、`toolbox`
+- `docker compose`：`vault`、`postgres`、`opensearch`、`gateway`、`otel-collector`、`vector`、`victoria-metrics`、`victoria-logs`、`grafana`、`toolbox`
 - 宿主机控制面：`consul`、`nomad`
 - `Nomad jobs`：`conductor`、`conductor-ui`、`func1-python`、`review-service`、`func2-ts`
 
 配置和密钥分发方式是固定的：
 
 - `scripts/register-infra-services.sh` 把基础设施注册进 `Consul`
+- `scripts/bootstrap-opensearch.sh` 在 Conductor 启动前预建中文 analyzer、index template 和 workflow/task index
 - `scripts/init-control-plane.sh` 把运行参数写入 `Consul KV`，把数据库凭据和 review token 写入 `Vault`
 - `jobs/*.nomad.hcl` 通过 `service`、`key`、`secret` 在运行时解析依赖、配置和密钥
 
@@ -234,6 +249,10 @@ curl -s "http://localhost:18080/api/workflow/${workflow_id}" | jq '{workflowId,s
 
 当前 workflow 最终 output 还会带上这些辅助检索字段：
 
+- `cn_case_title`
+- `cn_keywords`
+- `cn_review_comment`
+- `cn_final_summary`
 - `correlation_id`
 - `initial_x`
 - `initial_x_tag`
@@ -252,7 +271,13 @@ curl -s "http://localhost:18080/api/workflow/${workflow_id}" | jq '{workflowId,s
 ./scripts/prove-search.sh
 ```
 
-它只用来检查当前 Conductor search backend 是否已经能直接命中 `output.y` 这类结果字段。稳定演示路径仍然应该是：先在 `Conductor UI` 里按 workflow、状态、时间范围收敛，再结合输出详情或 `search-output.sh` 做阈值核对。
+它会轮询 Conductor 自带的 `/workflow/search`，确认默认中文关键词 `仓库巡检` 已经能直接命中 demo workflow。稳定演示路径现在是：先在 `Conductor UI` 里输入中文关键词，再结合输出详情或 `search-output.sh` 做阈值核对。
+
+如果你要证明“中文分词已经启用”，不要只搜完整短语。更好的演示是：
+
+- 搜 `巡检`，应命中仓库类 workflow
+- 搜 `付款`，应命中合同类 workflow
+- 用 `toolbox` 对 `conductor_workflow` 执行 `_analyze`，检查 `icu_analyzer` 和 `conductor_cjk_recall` 的 token 输出
 
 ## 可观测性
 
